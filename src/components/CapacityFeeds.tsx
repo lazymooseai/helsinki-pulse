@@ -1,10 +1,14 @@
 import { useState } from "react";
-import { Ship, TrainFront, Flame, Snowflake, Ticket, CheckCircle, MinusCircle, AlertTriangle, Pencil, X, Save, ExternalLink, ChevronDown, ChevronUp, Plus, Trash2, Filter } from "lucide-react";
+import { Ship, TrainFront, Flame, Snowflake, Ticket, CheckCircle, MinusCircle, AlertTriangle, Pencil, X, Save, ExternalLink, Plus } from "lucide-react";
 import { useDashboard, CrowdOverride, DispatchEdit } from "@/context/DashboardContext";
 import { EventInfo } from "@/lib/types";
 import { TRAIN_STATIONS, type TrainStation } from "@/lib/fintraffic";
 import { addManualEvent, deleteManualEvent, triggerEventScrape } from "@/lib/events";
 import { toast } from "sonner";
+import EventsTimeline from "@/components/EventsTimeline";
+import DetailSheet from "@/components/DetailSheet";
+import type { TimelineItem } from "@/lib/eventCategories";
+import type { FlightArrival, ShipArrival, TrainDelay, SportsEvent } from "@/lib/types";
 
 /**
  * Merkittävä-suodatus: tapahtuma kelpaa jos jokin näistä pätee:
