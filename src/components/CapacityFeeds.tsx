@@ -1,10 +1,14 @@
 import { useState } from "react";
-import { Ship, TrainFront, Flame, Snowflake, Ticket, CheckCircle, MinusCircle, AlertTriangle, Pencil, X, Save, ExternalLink, ChevronDown, ChevronUp, Plus, Trash2, Filter } from "lucide-react";
+import { Ship, TrainFront, Flame, Snowflake, Ticket, CheckCircle, MinusCircle, AlertTriangle, Pencil, X, Save, ExternalLink, Plus, Trash2, Plane } from "lucide-react";
 import { useDashboard, CrowdOverride, DispatchEdit } from "@/context/DashboardContext";
 import { EventInfo } from "@/lib/types";
 import { TRAIN_STATIONS, type TrainStation } from "@/lib/fintraffic";
 import { addManualEvent, deleteManualEvent, triggerEventScrape } from "@/lib/events";
 import { toast } from "sonner";
+import EventsTimeline from "@/components/EventsTimeline";
+import DetailSheet from "@/components/DetailSheet";
+import type { TimelineItem } from "@/lib/eventCategories";
+import type { FlightArrival, ShipArrival, TrainDelay, SportsEvent } from "@/lib/types";
 
 /**
  * Merkittävä-suodatus: tapahtuma kelpaa jos jokin näistä pätee:
@@ -693,12 +697,122 @@ const AddEventModal = ({ onClose, onSaved }: { onClose: () => void; onSaved: () 
   );
 };
 
+/* ── Detail Sheet for Timeline items (yhdistaa kaikki lahteet) ── */
+const TimelineDetailSheet = ({ item, onClose }: { item: TimelineItem | null; onClose: () => void }) => {
+  if (!item) return null;
+
+  // Yhteinen otsikko + tagi-renderointi, kohteen mukaan tarkat kentat
+  type Field = { label: string; value: string; highlight?: boolean };
+  let icon: React.ReactNode = <Ticket className="h-7 w-7" />;
+  let title = item.title;
+  let subtitle = item.subtitle;
+  let fields: Field[] = [];
+  let externalUrl: string | undefined;
+  let externalLabel: string | undefined;
+
+  switch (item.raw.kind) {
+    case "flight": {
+      const f = item.raw.data as FlightArrival;
+      icon = <Plane className="h-7 w-7" />;
+      title = `${f.flightNumber} • ${f.airline}`;
+      subtitle = `${f.origin} → Helsinki-Vantaa`;
+      fields = [
+        { label: "Saapumisaika (ETA)", value: f.estimatedTime, highlight: true },
+        { label: "Aikataulun mukainen", value: f.scheduledTime },
+        ...(f.delayMinutes !== 0
+          ? [{ label: "Viive", value: `${f.delayMinutes > 0 ? "+" : ""}${f.delayMinutes} min` }]
+          : []),
+        ...(f.terminal ? [{ label: "Terminaali", value: f.terminal }] : []),
+        ...(f.gate ? [{ label: "Portti", value: f.gate }] : []),
+        ...(f.belt ? [{ label: "Matkatavarahihna", value: f.belt }] : []),
+        { label: "Kysyntä", value: f.demandTag },
+      ];
+      externalUrl = "https://www.finavia.fi/fi/lentoasemat/helsinki-vantaa/saapuvat-lennot";
+      externalLabel = "Avaa Finavia";
+      break;
+    }
+    case "train": {
+      const t = item.raw.data as TrainDelay;
+      icon = <TrainFront className="h-7 w-7" />;
+      title = `${t.line} ${t.origin}`;
+      subtitle = `Saapuu ${item.subtitle}`;
+      fields = [
+        { label: "Saapumisaika", value: t.arrivalTime, highlight: true },
+        { label: "Myöhästyminen", value: t.delayMinutes > 0 ? `+${t.delayMinutes} min` : "Aikataulussa" },
+      ];
+      externalUrl = "https://junalahdot.fi/helsinki";
+      externalLabel = "Avaa junalahdot.fi";
+      break;
+    }
+    case "ship": {
+      const s = item.raw.data as ShipArrival;
+      icon = <Ship className="h-7 w-7" />;
+      title = s.ship;
+      subtitle = s.harbor;
+      fields = [
+        { label: "ETA", value: s.eta, highlight: true },
+        { label: "Matkustajia (live)", value: s.estimatedPax ? `~${s.estimatedPax.toLocaleString("fi-FI")}` : "—" },
+        { label: "Maksimikapasiteetti", value: s.pax.toLocaleString("fi-FI") },
+      ];
+      externalUrl = "https://averio.fi/laivat";
+      externalLabel = "Avaa averio.fi";
+      break;
+    }
+    case "sports": {
+      const sp = item.raw.data as SportsEvent;
+      icon = <Ticket className="h-7 w-7" />;
+      title = `${sp.homeTeam} – ${sp.awayTeam}`;
+      subtitle = `${sp.league} • ${sp.venue}`;
+      fields = [
+        { label: "Alkamisaika", value: sp.startTime, highlight: true },
+        { label: "Yleisöarvio", value: `~${sp.expectedAttendance.toLocaleString("fi-FI")} hlö` },
+        { label: "Kapasiteetti", value: sp.capacity.toLocaleString("fi-FI") },
+        { label: "Täyttö", value: `${Math.round((sp.expectedAttendance / sp.capacity) * 100)}%` },
+        { label: "Kysyntä", value: sp.demandTag },
+      ];
+      externalUrl = getDeepLinkForVenue(sp.venue) ?? undefined;
+      externalLabel = externalUrl ? "Avaa tapahtumapaikka" : undefined;
+      break;
+    }
+    case "event":
+    default: {
+      const e = item.raw.data as EventInfo;
+      icon = <Ticket className="h-7 w-7" />;
+      title = e.name;
+      subtitle = e.venue;
+      fields = [
+        ...(e.startTime ? [{ label: "Alkamisaika", value: e.startTime, highlight: true }] : []),
+        ...(e.endTime ? [{ label: "Päättyy", value: e.endTime }] : []),
+        ...(e.capacity ? [{ label: "Kapasiteetti", value: e.capacity.toLocaleString("fi-FI") }] : []),
+        ...(e.estimatedAttendance ? [{ label: "Yleisöarvio", value: `~${e.estimatedAttendance.toLocaleString("fi-FI")} hlö` }] : []),
+        { label: "Loppuunmyyty", value: e.soldOut ? "Kyllä" : "Ei" },
+        ...(e.demandTag ? [{ label: "Kysyntä", value: e.demandTag }] : []),
+      ];
+      externalUrl = getDeepLinkForVenue(e.venue) ?? undefined;
+      externalLabel = externalUrl ? "Avaa tapahtumapaikka" : undefined;
+      break;
+    }
+  }
+
+  return (
+    <DetailSheet
+      open
+      onClose={onClose}
+      icon={icon}
+      title={title}
+      subtitle={subtitle}
+      fields={fields}
+      externalUrl={externalUrl}
+      externalLabel={externalLabel}
+    />
+  );
+};
+
 const CapacityFeeds = () => {
-  const { state, upcomingEvents, crowdOverrides, setCrowdOverride, dispatchEdits, setDispatchEdit, lastFetch, trainStation, setTrainStation, refreshAll } = useDashboard();
+  const { state, lastFetch, trainStation, setTrainStation, refreshAll } = useDashboard();
   const [editingEventId, setEditingEventId] = useState<string | null>(null);
-  const [showUpcoming, setShowUpcoming] = useState(false);
   const [showAddForm, setShowAddForm] = useState(false);
-  const [showSmallVenues, setShowSmallVenues] = useState(false);
+  const [selectedTimelineItem, setSelectedTimelineItem] = useState<TimelineItem | null>(null);
 
   const editingEvent = editingEventId ? state.events.find((e) => e.id === editingEventId) : null;
 
@@ -737,28 +851,6 @@ const CapacityFeeds = () => {
     deepLink: getDeepLinkForFeed("train"),
     isLive: isDataLive,
   }));
-
-  // Events: live if fetched from API (id doesn't start with "fallback")
-  const isEventLive = (event: EventInfo) => !event.id.startsWith("fallback") && isDataLive;
-
-  const sortedEvents = [...state.events].sort((a, b) => {
-    const oa = crowdOverrides[a.id];
-    const ob = crowdOverrides[b.id];
-    if (oa === "rush" && ob !== "rush") return -1;
-    if (ob === "rush" && oa !== "rush") return 1;
-    if (oa === "quiet" && ob !== "quiet") return 1;
-    if (ob === "quiet" && oa !== "quiet") return -1;
-    return (a.startTime || "").localeCompare(b.startTime || "");
-  });
-
-  // Suodatus: oletuksena vain merkittävät tapahtumat
-  const significantEvents = sortedEvents.filter(isSignificantEvent);
-  const smallEvents = sortedEvents.filter((e) => !isSignificantEvent(e));
-  const visibleEvents = showSmallVenues ? sortedEvents : significantEvents;
-
-  const significantUpcoming = upcomingEvents.filter(isSignificantEvent);
-  const smallUpcoming = upcomingEvents.filter((e) => !isSignificantEvent(e));
-  const visibleUpcoming = showSmallVenues ? upcomingEvents : significantUpcoming;
 
   return (
     <>
@@ -808,103 +900,17 @@ const CapacityFeeds = () => {
           </section>
         )}
 
-        <section>
-          <div className="flex items-center justify-between mb-3">
-            <h2 className="text-lg font-black uppercase tracking-widest text-muted-foreground flex items-center gap-2">
-              <Ticket className="h-5 w-5 text-accent" />
-              Tapahtumat Tänään {visibleEvents.length > 0 && <span className="text-accent">({visibleEvents.length})</span>}
-            </h2>
-            <div className="flex gap-2">
-              {(smallEvents.length > 0 || smallUpcoming.length > 0) && (
-                <button
-                  onClick={() => setShowSmallVenues(!showSmallVenues)}
-                  className={`h-10 px-3 rounded-lg border flex items-center gap-1.5 text-xs font-black uppercase tracking-wider active:scale-95 transition-transform ${
-                    showSmallVenues
-                      ? "bg-accent/15 border-accent/40 text-accent"
-                      : "bg-muted border-border text-muted-foreground"
-                  }`}
-                  title="Näytä myös pienet paikat (baarit, kahvilat, klubit <300 hlö)"
-                >
-                  <Filter className="h-4 w-4" />
-                  {showSmallVenues ? "Kaikki" : `+${smallEvents.length + smallUpcoming.length} pientä`}
-                </button>
-              )}
-              <button
-                onClick={() => setShowAddForm(true)}
-                className="h-10 px-3 rounded-lg bg-primary/15 border border-primary/40 flex items-center gap-1.5 text-primary text-xs font-black uppercase tracking-wider active:scale-95 transition-transform"
-              >
-                <Plus className="h-4 w-4" /> Lisää
-              </button>
-            </div>
-          </div>
-
-          {visibleEvents.length === 0 && (
-            <div className="rounded-xl bg-card border border-border p-5 text-center">
-              <p className="text-base font-bold text-muted-foreground">
-                {smallEvents.length > 0
-                  ? `Ei merkittäviä tapahtumia. ${smallEvents.length} pientä paikkaa piilossa.`
-                  : "Ei aktiivisia tapahtumia juuri nyt."}
-              </p>
-              <p className="text-xs text-muted-foreground/60 mt-1">
-                {smallEvents.length > 0 ? "Avaa suodatus \"+N pientä\" -napista." : "Tarkista tulevat tai lisää käsin."}
-              </p>
-            </div>
-          )}
-
-          <div className="flex flex-col gap-2">
-            {visibleEvents.map((event) => (
-              <EventCard
-                key={event.id}
-                event={event}
-                override={crowdOverrides[event.id]}
-                onOverride={(o) => setCrowdOverride(event.id, o)}
-                dispatchEdit={dispatchEdits[event.id]}
-                onEdit={() => setEditingEventId(event.id)}
-                isLive={isEventLive(event)}
-              />
-            ))}
-          </div>
-
-          {/* Tulevat (N) - laajennettava */}
-          {visibleUpcoming.length > 0 && (
-            <div className="mt-3">
-              <button
-                onClick={() => setShowUpcoming(!showUpcoming)}
-                className="w-full flex items-center justify-between rounded-xl bg-card border-2 border-border px-4 py-3 active:scale-[0.98] transition-transform"
-              >
-                <span className="text-base font-black uppercase tracking-wider text-foreground flex items-center gap-2">
-                  <Ticket className="h-5 w-5 text-muted-foreground" />
-                  Tulevat ({visibleUpcoming.length}) — 7 pv
-                </span>
-                {showUpcoming ? <ChevronUp className="h-5 w-5 text-muted-foreground" /> : <ChevronDown className="h-5 w-5 text-muted-foreground" />}
-              </button>
-
-              {showUpcoming && (
-                <div className="mt-2 flex flex-col gap-2">
-                  {visibleUpcoming.map((event) => (
-                    <UpcomingEventCard
-                      key={event.id}
-                      event={event}
-                      onDelete={async () => {
-                        const r = await deleteManualEvent(event.id);
-                        if (r.ok) { toast.success("Poistettu"); refreshAll(); }
-                        else toast.error("Poisto epäonnistui", { description: r.error });
-                      }}
-                    />
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
-        </section>
+        <EventsTimeline
+          onSelect={setSelectedTimelineItem}
+          onAddEvent={() => setShowAddForm(true)}
+        />
       </div>
 
       {/* Edit Modal */}
       {editingEvent && (
         <DispatchEditModal
           event={editingEvent}
-          dispatchEdit={dispatchEdits[editingEvent.id]}
-          onSave={(edit) => setDispatchEdit(editingEvent.id, edit)}
+          onSave={() => {}}
           onClose={() => setEditingEventId(null)}
         />
       )}
@@ -915,6 +921,12 @@ const CapacityFeeds = () => {
           onSaved={() => { setShowAddForm(false); refreshAll(); }}
         />
       )}
+
+      {/* Detail-paneeli aikajananakymalle */}
+      <TimelineDetailSheet
+        item={selectedTimelineItem}
+        onClose={() => setSelectedTimelineItem(null)}
+      />
     </>
   );
 };
