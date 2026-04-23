@@ -25,13 +25,12 @@ type: feature
 - AddEventModal + DispatchEditModal sailyvat ennallaan
 
 **Lipunmyyntitiedot:**
-- Tarkat: TICKET_SOURCES (lippu.fi, tiketti.fi, venue-omat) skrapataan ja
-  matchataan nimella aggregaattorin tapahtumiin.
-- AI-arvio: jaljelle jaaville tehdaan yksi batch-call gemini-2.5-flashille,
-  joka palauttaa load_factor (0..1) + reasoning (heuristiikka venue-koko +
-  artisti + viikonpaiva).
-- DB: events.availability_note tallentaa joko "Vain N paikkaa jaljella" tai
-  "Arvio: ...". UI naytttaa sen "Tilanne"-rivilla.
+- Vain TODELLINEN data: TICKET_SOURCES (lippu.fi, tiketti.fi, venue-omat)
+  skrapataan ja matchataan nimella aggregaattorin tapahtumiin.
+- EI AI-arvioita / EI keksittyja heuristiikkoja. Jos lipputietoa ei loydy,
+  load_factor = NULL ja UI ei nayta lipputietoriviakaan.
+- DB: events.availability_note sisaltaa vain venue-/lipunmyyntisivun
+  tarkan tekstin (esim. "Vain N paikkaa jaljella", "Loppuunmyyty").
 
 **Realtime:** events-taulu kuuntelussa DashboardContextissa, refetch automaattisesti.
 

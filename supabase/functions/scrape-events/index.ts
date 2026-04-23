@@ -274,66 +274,6 @@ function classifyDemand(loadFactor: number | null, soldOut: boolean): { level: '
   return { level: 'green', tag: 'NORMAALI' };
 }
 
-/**
- * Pyytaa AI:ta arvioimaan load_factor heuristisesti niille tapahtumille,
- * joille ei loytynyt tarkkaa lipunmyyntitietoa. Yksi batch-pyynto kaikille,
- * jotta sailytetaan API-kustannukset alhaisina.
- */
-async function aiEstimateLoadFactors(
-  events: Array<{ name: string; venue: string; start_time: string; capacity: number | null }>,
-  lovableKey: string,
-): Promise<Array<{ idx: number; load_factor: number; reasoning: string }>> {
-  if (events.length === 0) return [];
-  const list = events
-    .map(
-      (e, i) =>
-        `${i}. "${e.name}" @ ${e.venue} — ${e.start_time} (kapasiteetti: ${e.capacity ?? 'tuntematon'})`,
-    )
-    .join('\n');
-
-  const prompt = `Olet Helsingin tapahtumakysynnan asiantuntija. Arvioi jokaiselle tapahtumalle load_factor (0..1)
-jolla todennakoisesti tapahtuma on myyty. Heuristiikka:
-- Klassinen konsertti / oopperan paavuoro / suosittu artisti: 0.7-0.9
-- Pieni tuntematon konsertti / kokeellinen teatteri: 0.2-0.4
-- Festivaali / messut: 0.6-0.8
-- Stand-up / show: 0.5-0.8
-- Urheilun runkosarja: 0.5-0.75, playoff/finaali: 0.85-0.98
-- Suosittu ulkomainen artisti isolla areenalla: 0.85-0.98
-- Iltaesitys (klo 19+) suositulla venuella: +0.1 bonus
-- Viikonloppu (pe-su): +0.05 bonus
-- Pienet klubit (kapasiteetti <500): yleensa 0.5-0.7
-- Jos epavarma tai geneerinen: 0.5
-- Sold out -tieto pitaa olla 1.00, mutta ALA arvaa sold outiksi ilman naytttoa.
-
-Palauta JSON:
-{ "estimates": [ { "idx": 0, "load_factor": 0.65, "reasoning": "ooppera, perjantai-ilta" }, ... ] }
-
-Tapahtumat:
-${list}`;
-
-  const res = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${lovableKey}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      model: 'google/gemini-2.5-flash',
-      messages: [{ role: 'user', content: prompt }],
-      response_format: { type: 'json_object' },
-    }),
-  });
-  if (!res.ok) {
-    console.warn(`AI estimate ${res.status}`);
-    return [];
-  }
-  const data = await res.json();
-  const content = data.choices?.[0]?.message?.content || '{"estimates":[]}';
-  try {
-    const parsed = JSON.parse(content);
-    return Array.isArray(parsed.estimates) ? parsed.estimates : [];
-  } catch {
-    return [];
-  }
-}
-
 /** Skrapaa yhden aggregaattorisivun ja palauttaa parsedut tapahtumat. */
 async function scrapeAggregator(url: string, firecrawlKey: string, lovableKey: string): Promise<ParsedAggregatorEvent[]> {
   const md = await firecrawlScrape(url, firecrawlKey);
@@ -413,35 +353,9 @@ Deno.serve(async (req) => {
     }
   }
 
-  // 3.5) AI-arvio load_factorista niille, joilta puuttuu tarkka tieto.
-  //      Pidetaan listan koko jarjellisena (max 60 kerralla).
-  const allEvents = Array.from(combined.values());
-  const needEstimate = allEvents
-    .filter((ev) => !ev.sold_out && (ev.load_factor == null))
-    .slice(0, 60);
-
-  if (needEstimate.length > 0) {
-    const items = needEstimate.map((ev) => ({
-      name: ev.name,
-      venue: ev.venue,
-      start_time: ev.start_time,
-      capacity: pickCapacityForVenue(ev.venue || ''),
-    }));
-    try {
-      const estimates = await aiEstimateLoadFactors(items, LOVABLE_API_KEY);
-      for (const est of estimates) {
-        if (typeof est.idx !== 'number' || !needEstimate[est.idx]) continue;
-        const lf = Math.max(0, Math.min(1, Number(est.load_factor) || 0.5));
-        needEstimate[est.idx].load_factor = lf;
-        needEstimate[est.idx].availability_note =
-          (est.reasoning ? `Arvio: ${est.reasoning}` : 'AI-arvio');
-      }
-    } catch (e) {
-      console.warn('AI estimate failed:', e instanceof Error ? e.message : String(e));
-    }
-  }
-
   // 4) Upsert tietokantaan
+  // HUOM: load_factor jaa null:iksi jos tarkkaa lipunmyyntitietoa ei loytynyt
+  // (Lippu.fi/Tiketti/venue-sivu). EI keksitta arvioita.
   let upsertCount = 0;
   const upsertErrors: string[] = [];
   for (const ev of combined.values()) {
