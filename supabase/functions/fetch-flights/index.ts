@@ -103,12 +103,6 @@ function parseHelsinkiTime(hhmm: string, now: Date): Date | null {
   });
   const today = fmt.format(now); // YYYY-MM-DD
 
-  // Rakenna ISO-aika oletetulla offsetilla — käytä tarkkaa Helsinki-aikaa
-  // Yksinkertaistus: luo Date Helsingin aikavyöhykkeellä ja korjaa offset
-  const candidate = new Date(`${today}T${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}:00`);
-  // candidate on UTC:ssä — säädä Helsinki-offsetilla
-  const helsinkiOffsetMin = -new Date(candidate.toLocaleString("en-US", { timeZone: HELSINKI_TIMEZONE })).getTimezoneOffset();
-  // Yksinkertaisempi tapa: laske ero kahden formaatin välillä
   const utcMs = Date.UTC(
     Number(today.slice(0, 4)), Number(today.slice(5, 7)) - 1, Number(today.slice(8, 10)),
     hour, minute, 0,
@@ -128,7 +122,6 @@ function parseHelsinkiTime(hhmm: string, now: Date): Date | null {
     result = new Date(result.getTime() + 24 * 60 * 60 * 1000);
   }
   return result;
-  void candidate; void helsinkiOffsetMin; // silence unused
 }
 
 /** Parsi markdown-taulukko lentolistaksi. Yritetään tukea useita formaatteja. */
