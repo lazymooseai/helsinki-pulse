@@ -353,35 +353,9 @@ Deno.serve(async (req) => {
     }
   }
 
-  // 3.5) AI-arvio load_factorista niille, joilta puuttuu tarkka tieto.
-  //      Pidetaan listan koko jarjellisena (max 60 kerralla).
-  const allEvents = Array.from(combined.values());
-  const needEstimate = allEvents
-    .filter((ev) => !ev.sold_out && (ev.load_factor == null))
-    .slice(0, 60);
-
-  if (needEstimate.length > 0) {
-    const items = needEstimate.map((ev) => ({
-      name: ev.name,
-      venue: ev.venue,
-      start_time: ev.start_time,
-      capacity: pickCapacityForVenue(ev.venue || ''),
-    }));
-    try {
-      const estimates = await aiEstimateLoadFactors(items, LOVABLE_API_KEY);
-      for (const est of estimates) {
-        if (typeof est.idx !== 'number' || !needEstimate[est.idx]) continue;
-        const lf = Math.max(0, Math.min(1, Number(est.load_factor) || 0.5));
-        needEstimate[est.idx].load_factor = lf;
-        needEstimate[est.idx].availability_note =
-          (est.reasoning ? `Arvio: ${est.reasoning}` : 'AI-arvio');
-      }
-    } catch (e) {
-      console.warn('AI estimate failed:', e instanceof Error ? e.message : String(e));
-    }
-  }
-
   // 4) Upsert tietokantaan
+  // HUOM: load_factor jaa null:iksi jos tarkkaa lipunmyyntitietoa ei loytynyt
+  // (Lippu.fi/Tiketti/venue-sivu). EI keksitta arvioita.
   let upsertCount = 0;
   const upsertErrors: string[] = [];
   for (const ev of combined.values()) {
