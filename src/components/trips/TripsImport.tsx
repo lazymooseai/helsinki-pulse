@@ -44,7 +44,9 @@ const TripsImport = () => {
     if (result.failed === 0) {
       toast.success(`${result.inserted} uutta kyytiä tuotu, ${result.skipped} ohitettu`);
     } else {
-      toast.error(`${result.failed} riviä epäonnistui`);
+      const firstErr = result.errors[0] ?? "Tuntematon virhe";
+      toast.error(`${result.failed} riviä epäonnistui: ${firstErr}`, { duration: 10000 });
+      console.error("Tuontivirheet:", result.errors);
     }
   };
 
@@ -162,7 +164,19 @@ const TripsImport = () => {
                   <p className="text-sm text-foreground">✓ {importResult.inserted} uutta kyytiä tuotu</p>
                   <p className="text-sm text-muted-foreground">↷ {importResult.skipped} duplikaattia ohitettu</p>
                   {importResult.failed > 0 && (
-                    <p className="text-sm text-destructive">✗ {importResult.failed} epäonnistui</p>
+                    <>
+                      <p className="text-sm text-destructive font-semibold">✗ {importResult.failed} epäonnistui</p>
+                      {importResult.errors.length > 0 && (
+                        <div className="mt-2 p-2 rounded bg-destructive/10 border border-destructive/30">
+                          <p className="text-xs font-bold text-destructive mb-1">Virheviestit:</p>
+                          <ul className="text-xs text-destructive space-y-0.5 max-h-32 overflow-auto">
+                            {importResult.errors.slice(0, 5).map((e, i) => (
+                              <li key={i} className="break-words">• {e}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                    </>
                   )}
                   <Button onClick={reset} variant="outline" size="sm" className="mt-2">Tuo uusi tiedosto</Button>
                 </div>
