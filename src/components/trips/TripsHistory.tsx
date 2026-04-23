@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Search, Download, MapPin } from "lucide-react";
+import { Search, Download, MapPin, ChevronDown, ChevronUp } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -12,6 +12,8 @@ import {
   tripsToCsv,
   downloadCsv,
   DAY_LABELS_FI,
+  tripStartArea,
+  tripEndArea,
   type TaxiTripStored,
   type TripFilters,
 } from "@/lib/trips";
@@ -23,11 +25,36 @@ const TripsHistory = () => {
   const [fareMin, setFareMin] = useState("");
   const [fareMax, setFareMax] = useState("");
   const [trips, setTrips] = useState<TaxiTripStored[]>([]);
+  const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(false);
+  const [showList, setShowList] = useState(false);
+  const [pageSize] = useState(100);
+  const [offset, setOffset] = useState(0);
 
   const stats = useMemo(() => computeStats(trips), [trips]);
 
-  const runSearch = async () => {
+  const runSearch = async (resetPage = true) => {
+    setLoading(true);
+    const newOffset = resetPage ? 0 : offset;
+    const filters: TripFilters = {
+      search: search.trim() || undefined,
+      hourMin: hourRange[0],
+      hourMax: hourRange[1],
+      daysOfWeek: days.length > 0 ? days : undefined,
+      fareMin: fareMin ? parseFloat(fareMin) : undefined,
+      fareMax: fareMax ? parseFloat(fareMax) : undefined,
+      limit: pageSize,
+      offset: newOffset,
+    };
+    const { rows, total } = await queryTrips(filters);
+    setTrips(resetPage ? rows : [...trips, ...rows]);
+    setTotal(total);
+    if (resetPage) setOffset(rows.length);
+    else setOffset(newOffset + rows.length);
+    setLoading(false);
+  };
+
+  const loadMore = async () => {
     setLoading(true);
     const filters: TripFilters = {
       search: search.trim() || undefined,
@@ -36,10 +63,13 @@ const TripsHistory = () => {
       daysOfWeek: days.length > 0 ? days : undefined,
       fareMin: fareMin ? parseFloat(fareMin) : undefined,
       fareMax: fareMax ? parseFloat(fareMax) : undefined,
-      limit: 500,
+      limit: pageSize,
+      offset,
     };
-    const data = await queryTrips(filters);
-    setTrips(data);
+    const { rows, total } = await queryTrips(filters);
+    setTrips([...trips, ...rows]);
+    setTotal(total);
+    setOffset(offset + rows.length);
     setLoading(false);
   };
 
