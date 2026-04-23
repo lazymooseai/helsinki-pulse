@@ -31,6 +31,7 @@ export interface EventInfo {
   demandTag?: string;     // Kuljettajalle nakyvä tagi, esim. "KORKEA KYSYNTA"
   demandLevel?: "red" | "amber" | "green";
   startTime?: string;     // HH:MM muodossa
+  startIso?: string;      // Tay ISO-aika alkamisajalle (paivamaaran nayttoa varten)
   endTime?: string;       // HH:MM muodossa - paattymisaika (purkuaika)
   capacity?: number;      // Venue-kapasiteetti (paikkamäärä)
   estimatedAttendance?: number; // Arvio yleisömäärästä
