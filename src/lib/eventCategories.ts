@@ -33,6 +33,8 @@ export interface TimelineItem {
   time: string;
   /** Aika millisekunteina kunnes tapahtuma alkaa/saapuu (negatiivinen = jo kaynnissa) */
   startMs: number;
+  /** Alkuajan ISO-muoto (jos saatavilla), kayttetaan paivamaaran nayttoon */
+  startIso?: string;
   level: "red" | "amber" | "green";
   /** Numeerinen "kysynta" pisteytysta varten - max 5/tab valintaan */
   weight: number;
