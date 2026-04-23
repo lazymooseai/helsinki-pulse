@@ -106,19 +106,36 @@ const TimelineCard = ({ item, onClick }: TimelineCardProps) => {
         <p className="text-sm text-muted-foreground font-semibold truncate mt-0.5">
           {item.subtitle}
         </p>
-        {item.tag && (
-          <span
-            className={`inline-block mt-1 text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded ${
-              item.tag.includes("LOPPUUNMYYTY") || item.tag.includes("KORKEA")
-                ? "bg-destructive/20 text-destructive"
-                : item.tag.includes("PREMIUM")
-                ? "bg-accent/20 text-accent"
-                : "bg-muted text-muted-foreground"
-            }`}
-          >
-            {item.tag}
-          </span>
-        )}
+        <div className="flex items-center gap-1.5 mt-1 flex-wrap">
+          {item.tag && (
+            <span
+              className={`inline-block text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded ${
+                item.tag.includes("LOPPUUNMYYTY") || item.tag.includes("KORKEA")
+                  ? "bg-destructive/20 text-destructive"
+                  : item.tag.includes("PREMIUM")
+                  ? "bg-accent/20 text-accent"
+                  : "bg-muted text-muted-foreground"
+              }`}
+            >
+              {item.tag}
+            </span>
+          )}
+          {item.loadPct != null && (
+            <span
+              className={`inline-flex items-center gap-1 text-[10px] font-black tabular-nums px-1.5 py-0.5 rounded ${
+                item.loadPct >= 90
+                  ? "bg-destructive/15 text-destructive"
+                  : item.loadPct >= 70
+                  ? "bg-accent/15 text-accent"
+                  : "bg-muted text-muted-foreground"
+              }`}
+              title="Lipunmyyntiaste"
+            >
+              <Ticket className="h-3 w-3" />
+              {item.loadPct}%
+            </span>
+          )}
+        </div>
       </div>
       <div className="flex flex-col items-end shrink-0">
         <span className={`text-2xl font-mono font-black ${LEVEL_TIME_COLOR[item.level]}`}>

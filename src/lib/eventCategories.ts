@@ -40,6 +40,8 @@ export interface TimelineItem {
   tag?: string;
   /** Kapasiteetti tai matkustajamaara, jos tiedossa */
   capacity?: number;
+  /** Lipunmyyntiaste 0..100 (jos tiedossa), naytetaan kortilla */
+  loadPct?: number;
   /** Alkuperainen objekti, jotta detail-paneeli toimii */
   raw: { kind: "flight" | "train" | "ship" | "event" | "sports"; data: unknown };
 }
@@ -271,6 +273,15 @@ export function eventToTimelineItem(e: EventInfo): TimelineItem {
     (e.capacity ? Math.min(50, e.capacity / 100) : 0) +
     (e.soldOut ? 30 : 0);
 
+  const loadPct =
+    e.soldOut
+      ? 100
+      : e.loadFactor != null
+      ? Math.round(Number(e.loadFactor) * 100)
+      : e.capacity && e.estimatedAttendance
+      ? Math.round((e.estimatedAttendance / e.capacity) * 100)
+      : undefined;
+
   return {
     id: `event-${e.id}`,
     category: categorizeEvent(e.name, e.venue),
@@ -282,6 +293,7 @@ export function eventToTimelineItem(e: EventInfo): TimelineItem {
     weight,
     tag: e.demandTag,
     capacity: e.capacity,
+    loadPct,
     raw: { kind: "event", data: e },
   };
 }
@@ -365,6 +377,8 @@ export function sportsToTimelineItem(s: SportsEvent): TimelineItem {
     weight,
     tag: s.demandTag,
     capacity: s.capacity,
+    loadPct:
+      s.capacity > 0 ? Math.round((s.expectedAttendance / s.capacity) * 100) : undefined,
     raw: { kind: "sports", data: s },
   };
 }
