@@ -1,0 +1,96 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@700&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 222 47% 11%;
+    --foreground: 210 40% 98%;
+
+    --card: 217 33% 14%;
+    --card-foreground: 210 40% 98%;
+
+    --popover: 217 33% 14%;
+    --popover-foreground: 210 40% 98%;
+
+    --primary: 142 71% 45%;
+    --primary-foreground: 222 47% 8%;
+
+    --secondary: 217 33% 20%;
+    --secondary-foreground: 210 40% 98%;
+
+    --muted: 217 33% 18%;
+    --muted-foreground: 215 20% 55%;
+
+    --accent: 45 93% 47%;
+    --accent-foreground: 222 47% 8%;
+
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 210 40% 98%;
+
+    --neon-green: 142 71% 45%;
+    --neon-green-glow: 142 71% 45% / 0.3;
+    --neon-red: 0 84% 60%;
+    --neon-red-glow: 0 84% 60% / 0.25;
+    --neon-amber: 45 93% 47%;
+    --neon-amber-glow: 45 93% 47% / 0.25;
+
+    --border: 217 33% 22%;
+    --input: 217 33% 22%;
+    --ring: 142 71% 45%;
+
+    --radius: 0.75rem;
+
+    --sidebar-background: 222 47% 8%;
+    --sidebar-foreground: 210 40% 98%;
+    --sidebar-primary: 142 71% 45%;
+    --sidebar-primary-foreground: 222 47% 8%;
+    --sidebar-accent: 217 33% 18%;
+    --sidebar-accent-foreground: 210 40% 98%;
+    --sidebar-border: 217 33% 22%;
+    --sidebar-ring: 142 71% 45%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground font-sans antialiased;
+    font-family: 'Inter', sans-serif;
+  }
+}
+
+@layer utilities {
+  .font-mono-display {
+    font-family: 'JetBrains Mono', monospace;
+  }
+
+  .glow-green {
+    box-shadow: 0 0 20px hsl(var(--neon-green-glow)), 0 0 40px hsl(var(--neon-green-glow));
+  }
+
+  .glow-red {
+    box-shadow: 0 0 15px hsl(var(--neon-red-glow)), 0 0 30px hsl(var(--neon-red-glow));
+  }
+
+  .glow-amber {
+    box-shadow: 0 0 15px hsl(var(--neon-amber-glow)), 0 0 30px hsl(var(--neon-amber-glow));
+  }
+
+  .text-glow-green {
+    text-shadow: 0 0 10px hsl(var(--neon-green-glow));
+  }
+
+  .text-glow-red {
+    text-shadow: 0 0 10px hsl(var(--neon-red-glow));
+  }
+
+  .text-glow-amber {
+    text-shadow: 0 0 8px hsl(var(--neon-amber-glow));
+  }
+}

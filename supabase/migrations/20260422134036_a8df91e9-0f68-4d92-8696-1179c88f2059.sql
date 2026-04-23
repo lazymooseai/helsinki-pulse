@@ -1,0 +1,1 @@
+ALTER VIEW public.trip_patterns SET (security_invoker = true);
