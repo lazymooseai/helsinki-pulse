@@ -25,7 +25,10 @@ type: feature
 **Cron:** `scrape-events-every-2h` ajaa 2h välein (pg_cron + pg_net). Upsert via `external_id`.
 
 **UI (EventsTimeline.tsx + CapacityFeeds.tsx):**
-- 4h aikajana yhdistaa lentoja, junia, laivoja, tapahtumia, urheilua
+- Aikajana yhdistaa lentoja, junia, laivoja, tapahtumia, urheilua
+- Per tabi kaksi osiota: TANAAN (aika-ikkunan sisalla) + TULEVAT PAIVAT (tulevat 7 pv)
+- Tulevien paivien korteissa nakyy paivamaaratagi ("Huomenna" tai "pe 25.4.")
+  perustuen events.startIso -kenttaan
 - 4 valilehtea swaipattavina (react-swipeable + napit + nuolet):
   Asemat / Kulttuuri / Urheilu / Muut
 - Oletusikkuna: Nyt + 2h, +2h-nappi laajentaa 4h asti
@@ -48,5 +51,8 @@ type: feature
   tarkan tekstin (esim. "Vain N paikkaa jaljella", "Loppuunmyyty").
 
 **Realtime:** events-taulu kuuntelussa DashboardContextissa, refetch automaattisesti.
+- Migraatio: `ALTER PUBLICATION supabase_realtime ADD TABLE public.events`
+  + `REPLICA IDENTITY FULL` jotta postgres_changes tosiaan laukeaa.
+  Ilman tata kanava subscriboi onnistuneesti mutta tapahtumia ei tule.
 
 **API (events.ts):** `fetchEventsBundle()`, `addManualEvent()`, `deleteManualEvent()`, `triggerEventScrape()`.
