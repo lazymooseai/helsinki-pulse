@@ -1,6 +1,7 @@
 import { Navigation, Plane, TrainFront, Ship, Trophy, CloudRain, ExternalLink } from "lucide-react";
 import { useDashboard } from "@/context/DashboardContext";
 import { JackpotAlert } from "@/lib/types";
+import { openExternal } from "@/lib/openExternal";
 
 /* ── Map alert type + zone to a deep link ── */
 const ZONE_LINKS: Record<string, string> = {
