@@ -238,33 +238,47 @@ const EventsTimeline = ({ onSelect, onAddEvent }: EventsTimelineProps) => {
   ]);
 
   // Suodata aika-ikkunan mukaan + ryhmita kategorioihin
-  const grouped: Record<EventCategory, TimelineItem[]> = useMemo(() => {
+  // Jaa: TANAAN (aika-ikkunan sisalla) ja TULEVAT (myohemmat paivat)
+  const { todayGrouped, upcomingGrouped, totalCounts } = useMemo(() => {
     const maxMin = windowH * 60;
-    const result: Record<EventCategory, TimelineItem[]> = {
-      asemat: [],
-      kulttuuri: [],
-      urheilu: [],
-      muut: [],
+    const today: Record<EventCategory, TimelineItem[]> = {
+      asemat: [], kulttuuri: [], urheilu: [], muut: [],
+    };
+    const upcoming: Record<EventCategory, TimelineItem[]> = {
+      asemat: [], kulttuuri: [], urheilu: [], muut: [],
     };
     for (const item of allItems) {
-      if (!inWindow(item, maxMin)) continue;
-      result[item.category].push(item);
+      if (isItemToday(item)) {
+        if (inWindow(item, maxMin)) today[item.category].push(item);
+      } else if (item.startMs > 0) {
+        // Tulevat paivat: ei aikaikkunarajoitusta, mutta ohi olleet pois
+        upcoming[item.category].push(item);
+      }
     }
-    // Lajittele jokaisen kategorian sisalla painon mukaan, sitten ajan mukaan
+    const sortByWeight = (a: TimelineItem, b: TimelineItem) => {
+      if (b.weight !== a.weight) return b.weight - a.weight;
+      return a.startMs - b.startMs;
+    };
+    const sortByTime = (a: TimelineItem, b: TimelineItem) => a.startMs - b.startMs;
+    const counts: Record<EventCategory, number> = { asemat: 0, kulttuuri: 0, urheilu: 0, muut: 0 };
     for (const cat of CATEGORY_ORDER) {
-      result[cat].sort((a, b) => {
-        if (b.weight !== a.weight) return b.weight - a.weight;
-        return a.startMs - b.startMs;
-      });
+      today[cat].sort(sortByWeight);
+      upcoming[cat].sort(sortByTime);
+      counts[cat] = today[cat].length + upcoming[cat].length;
     }
-    return result;
+    return { todayGrouped: today, upcomingGrouped: upcoming, totalCounts: counts };
   }, [allItems, windowH]);
 
   const activeCategory = CATEGORY_ORDER[tabIdx];
-  const activeItems = grouped[activeCategory];
+  const todayItems = todayGrouped[activeCategory];
+  const upcomingItems = upcomingGrouped[activeCategory];
   const isExpanded = expanded[activeCategory];
-  const visibleItems = isExpanded ? activeItems : activeItems.slice(0, HARD_LIMIT_PER_TAB);
-  const hiddenCount = activeItems.length - visibleItems.length;
+  const visibleToday = isExpanded ? todayItems : todayItems.slice(0, HARD_LIMIT_PER_TAB);
+  const visibleUpcoming = isExpanded ? upcomingItems : upcomingItems.slice(0, HARD_LIMIT_PER_TAB);
+  const hiddenToday = todayItems.length - visibleToday.length;
+  const hiddenUpcoming = upcomingItems.length - visibleUpcoming.length;
+  const hiddenCount = hiddenToday + hiddenUpcoming;
+  const hasAnything = visibleToday.length > 0 || visibleUpcoming.length > 0;
 
   // Swipe handlers
   const swipe = useSwipeable({
