@@ -16,6 +16,7 @@ export type Database = {
     Tables: {
       events: {
         Row: {
+          availability_note: string | null
           capacity: number | null
           created_at: string
           demand_level: string
@@ -36,6 +37,7 @@ export type Database = {
           venue: string
         }
         Insert: {
+          availability_note?: string | null
           capacity?: number | null
           created_at?: string
           demand_level?: string
@@ -56,6 +58,7 @@ export type Database = {
           venue: string
         }
         Update: {
+          availability_note?: string | null
           capacity?: number | null
           created_at?: string
           demand_level?: string

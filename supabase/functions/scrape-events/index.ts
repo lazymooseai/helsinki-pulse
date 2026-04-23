@@ -467,6 +467,7 @@ Deno.serve(async (req) => {
       source: 'scraper',
       is_manual: false,
       last_scraped_at: new Date().toISOString(),
+      availability_note: ev.availability_note ?? null,
     }, { onConflict: 'external_id' });
 
     if (error) {
