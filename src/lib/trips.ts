@@ -54,6 +54,7 @@ export interface TripFilters {
   fareMin?: number;
   fareMax?: number;
   limit?: number;
+  offset?: number;
 }
 
 export interface TripStats {
@@ -233,12 +234,14 @@ export async function insertSingleTrip(row: TaxiTripRow): Promise<{ ok: boolean;
 
 /* ── Haku ──────────────────────────────────────────────────────── */
 
-export async function queryTrips(filters: TripFilters): Promise<TaxiTripStored[]> {
+export async function queryTrips(filters: TripFilters): Promise<{ rows: TaxiTripStored[]; total: number }> {
+  const limit = filters.limit ?? 100;
+  const offset = filters.offset ?? 0;
   let q = supabase
     .from("taxi_trips")
-    .select("*")
+    .select("*", { count: "exact" })
     .order("start_time", { ascending: false })
-    .limit(filters.limit ?? 500);
+    .range(offset, offset + limit - 1);
 
   if (filters.search && filters.search.trim()) {
     const s = filters.search.trim();
@@ -252,12 +255,12 @@ export async function queryTrips(filters: TripFilters): Promise<TaxiTripStored[]
   if (typeof filters.fareMin === "number") q = q.gte("fare_eur", filters.fareMin);
   if (typeof filters.fareMax === "number") q = q.lte("fare_eur", filters.fareMax);
 
-  const { data, error } = await q;
+  const { data, error, count } = await q;
   if (error) {
     console.error("queryTrips error", error);
-    return [];
+    return { rows: [], total: 0 };
   }
-  return (data ?? []) as TaxiTripStored[];
+  return { rows: (data ?? []) as TaxiTripStored[], total: count ?? 0 };
 }
 
 export function computeStats(trips: TaxiTripStored[]): TripStats {
