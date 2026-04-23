@@ -269,7 +269,7 @@ export function computeStats(trips: TaxiTripStored[]): TripStats {
   for (const t of trips) {
     if (typeof t.fare_eur === "number") { fareSum += t.fare_eur; fareN++; }
     if (typeof t.distance_km === "number") { distSum += t.distance_km; distN++; }
-    const a = (t.start_address ?? "").trim();
+    const a = tripStartArea(t);
     if (a) areaCounts.set(a, (areaCounts.get(a) ?? 0) + 1);
   }
   let topArea: string | null = null;
