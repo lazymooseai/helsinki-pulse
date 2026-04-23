@@ -81,6 +81,7 @@ function rowToEvent(row: DbEventRow): EventInfo {
     demandTag: row.demand_tag || getDemandTagFromLevel(level, row.sold_out),
     demandLevel: level,
     startTime: formatTime(row.start_time),
+    startIso: row.start_time,
     endTime: formatTime(row.end_time),
     capacity: row.capacity ?? undefined,
     estimatedAttendance: attendance,

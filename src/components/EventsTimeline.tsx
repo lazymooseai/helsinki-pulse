@@ -76,6 +76,42 @@ function formatRelative(startMs: number): string {
   return m === 0 ? `${h}h` : `${h}h ${m}min`;
 }
 
+const WEEKDAYS = ["su", "ma", "ti", "ke", "to", "pe", "la"];
+
+/** Palauttaa lyhyen paivamaaran jos tapahtuma EI ole tanaan, muuten tyhjan stringin. */
+function formatDateBadge(iso?: string): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  const now = new Date();
+  const isToday =
+    d.getFullYear() === now.getFullYear() &&
+    d.getMonth() === now.getMonth() &&
+    d.getDate() === now.getDate();
+  if (isToday) return "";
+  const tomorrow = new Date(now);
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  const isTomorrow =
+    d.getFullYear() === tomorrow.getFullYear() &&
+    d.getMonth() === tomorrow.getMonth() &&
+    d.getDate() === tomorrow.getDate();
+  if (isTomorrow) return "Huomenna";
+  return `${WEEKDAYS[d.getDay()]} ${d.getDate()}.${d.getMonth() + 1}.`;
+}
+
+function isItemToday(item: TimelineItem): boolean {
+  if (item.startIso) {
+    const d = new Date(item.startIso);
+    const now = new Date();
+    return (
+      d.getFullYear() === now.getFullYear() &&
+      d.getMonth() === now.getMonth() &&
+      d.getDate() === now.getDate()
+    );
+  }
+  // Ei ISO:a -> oletetaan tanaan (lennot, junat jne. kayttavat HH:MM)
+  return true;
+}
+
 interface TimelineCardProps {
   item: TimelineItem;
   onClick: () => void;
@@ -83,6 +119,7 @@ interface TimelineCardProps {
 
 const TimelineCard = ({ item, onClick }: TimelineCardProps) => {
   const isPast = item.startMs < -5 * 60 * 1000;
+  const dateBadge = formatDateBadge(item.startIso);
   return (
     <button
       onClick={onClick}
@@ -107,6 +144,11 @@ const TimelineCard = ({ item, onClick }: TimelineCardProps) => {
           {item.subtitle}
         </p>
         <div className="flex items-center gap-1.5 mt-1 flex-wrap">
+          {dateBadge && (
+            <span className="inline-block text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded bg-primary/15 text-primary">
+              {dateBadge}
+            </span>
+          )}
           {item.tag && (
             <span
               className={`inline-block text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded ${
@@ -196,33 +238,47 @@ const EventsTimeline = ({ onSelect, onAddEvent }: EventsTimelineProps) => {
   ]);
 
   // Suodata aika-ikkunan mukaan + ryhmita kategorioihin
-  const grouped: Record<EventCategory, TimelineItem[]> = useMemo(() => {
+  // Jaa: TANAAN (aika-ikkunan sisalla) ja TULEVAT (myohemmat paivat)
+  const { todayGrouped, upcomingGrouped, totalCounts } = useMemo(() => {
     const maxMin = windowH * 60;
-    const result: Record<EventCategory, TimelineItem[]> = {
-      asemat: [],
-      kulttuuri: [],
-      urheilu: [],
-      muut: [],
+    const today: Record<EventCategory, TimelineItem[]> = {
+      asemat: [], kulttuuri: [], urheilu: [], muut: [],
+    };
+    const upcoming: Record<EventCategory, TimelineItem[]> = {
+      asemat: [], kulttuuri: [], urheilu: [], muut: [],
     };
     for (const item of allItems) {
-      if (!inWindow(item, maxMin)) continue;
-      result[item.category].push(item);
+      if (isItemToday(item)) {
+        if (inWindow(item, maxMin)) today[item.category].push(item);
+      } else if (item.startMs > 0) {
+        // Tulevat paivat: ei aikaikkunarajoitusta, mutta ohi olleet pois
+        upcoming[item.category].push(item);
+      }
     }
-    // Lajittele jokaisen kategorian sisalla painon mukaan, sitten ajan mukaan
+    const sortByWeight = (a: TimelineItem, b: TimelineItem) => {
+      if (b.weight !== a.weight) return b.weight - a.weight;
+      return a.startMs - b.startMs;
+    };
+    const sortByTime = (a: TimelineItem, b: TimelineItem) => a.startMs - b.startMs;
+    const counts: Record<EventCategory, number> = { asemat: 0, kulttuuri: 0, urheilu: 0, muut: 0 };
     for (const cat of CATEGORY_ORDER) {
-      result[cat].sort((a, b) => {
-        if (b.weight !== a.weight) return b.weight - a.weight;
-        return a.startMs - b.startMs;
-      });
+      today[cat].sort(sortByWeight);
+      upcoming[cat].sort(sortByTime);
+      counts[cat] = today[cat].length + upcoming[cat].length;
     }
-    return result;
+    return { todayGrouped: today, upcomingGrouped: upcoming, totalCounts: counts };
   }, [allItems, windowH]);
 
   const activeCategory = CATEGORY_ORDER[tabIdx];
-  const activeItems = grouped[activeCategory];
+  const todayItems = todayGrouped[activeCategory];
+  const upcomingItems = upcomingGrouped[activeCategory];
   const isExpanded = expanded[activeCategory];
-  const visibleItems = isExpanded ? activeItems : activeItems.slice(0, HARD_LIMIT_PER_TAB);
-  const hiddenCount = activeItems.length - visibleItems.length;
+  const visibleToday = isExpanded ? todayItems : todayItems.slice(0, HARD_LIMIT_PER_TAB);
+  const visibleUpcoming = isExpanded ? upcomingItems : upcomingItems.slice(0, HARD_LIMIT_PER_TAB);
+  const hiddenToday = todayItems.length - visibleToday.length;
+  const hiddenUpcoming = upcomingItems.length - visibleUpcoming.length;
+  const hiddenCount = hiddenToday + hiddenUpcoming;
+  const hasAnything = visibleToday.length > 0 || visibleUpcoming.length > 0;
 
   // Swipe handlers
   const swipe = useSwipeable({
@@ -280,7 +336,7 @@ const EventsTimeline = ({ onSelect, onAddEvent }: EventsTimelineProps) => {
         </button>
         <div className="flex-1 grid grid-cols-4 gap-1">
           {CATEGORY_ORDER.map((cat, i) => {
-            const count = grouped[cat].length;
+            const count = totalCounts[cat];
             const isActive = i === tabIdx;
             return (
               <button
@@ -321,11 +377,11 @@ const EventsTimeline = ({ onSelect, onAddEvent }: EventsTimelineProps) => {
 
       {/* Tab-sisalto, swaipattava */}
       <div {...swipe} className="min-h-[120px]">
-        {visibleItems.length === 0 ? (
+        {!hasAnything ? (
           <div className="rounded-xl bg-card border border-border p-5 text-center">
             <p className="text-base font-bold text-muted-foreground">
               Ei {CATEGORY_LABELS[activeCategory].toLowerCase()}-tapahtumia
-              {windowH === 2 ? " seuraavan 2h aikana" : " seuraavan 4h aikana"}.
+              tanaan eika tulevina paivina.
             </p>
             {windowH === 2 && (
               <button
@@ -337,10 +393,37 @@ const EventsTimeline = ({ onSelect, onAddEvent }: EventsTimelineProps) => {
             )}
           </div>
         ) : (
-          <div className="flex flex-col gap-2">
-            {visibleItems.map((item) => (
-              <TimelineCard key={item.id} item={item} onClick={() => onSelect?.(item)} />
-            ))}
+          <div className="flex flex-col gap-3">
+            {/* TANAAN */}
+            <div className="flex flex-col gap-2">
+              <h3 className="text-[11px] font-black uppercase tracking-widest text-muted-foreground/80 px-1">
+                Tanaan {todayItems.length > 0 && `(${todayItems.length})`}
+              </h3>
+              {visibleToday.length === 0 ? (
+                <div className="rounded-lg bg-card/50 border border-border/50 p-3 text-center">
+                  <p className="text-xs font-bold text-muted-foreground">
+                    Ei tapahtumia {windowH === 2 ? "seur. 2h" : "seur. 4h"} aikana
+                  </p>
+                </div>
+              ) : (
+                visibleToday.map((item) => (
+                  <TimelineCard key={item.id} item={item} onClick={() => onSelect?.(item)} />
+                ))
+              )}
+            </div>
+
+            {/* TULEVAT PAIVAT */}
+            {upcomingItems.length > 0 && (
+              <div className="flex flex-col gap-2">
+                <h3 className="text-[11px] font-black uppercase tracking-widest text-muted-foreground/80 px-1 pt-1 border-t border-border/40">
+                  Tulevat paivat ({upcomingItems.length})
+                </h3>
+                {visibleUpcoming.map((item) => (
+                  <TimelineCard key={item.id} item={item} onClick={() => onSelect?.(item)} />
+                ))}
+              </div>
+            )}
+
             {hiddenCount > 0 && (
               <button
                 onClick={() =>
@@ -348,17 +431,17 @@ const EventsTimeline = ({ onSelect, onAddEvent }: EventsTimelineProps) => {
                 }
                 className="w-full rounded-xl border-2 border-dashed border-border bg-card/50 py-3 text-sm font-black uppercase tracking-wider text-muted-foreground active:scale-[0.98]"
               >
-                Näytä kaikki {activeItems.length} ({hiddenCount} lisää)
+                Nayta kaikki ({hiddenCount} lisaa)
               </button>
             )}
-            {isExpanded && activeItems.length > HARD_LIMIT_PER_TAB && (
+            {isExpanded && (todayItems.length + upcomingItems.length) > HARD_LIMIT_PER_TAB && (
               <button
                 onClick={() =>
                   setExpanded((prev) => ({ ...prev, [activeCategory]: false }))
                 }
                 className="w-full rounded-xl bg-muted py-2 text-xs font-black uppercase tracking-wider text-muted-foreground active:scale-[0.98]"
               >
-                Tiivistä top {HARD_LIMIT_PER_TAB}
+                Tiivista top {HARD_LIMIT_PER_TAB}
               </button>
             )}
           </div>

@@ -33,6 +33,8 @@ export interface TimelineItem {
   time: string;
   /** Aika millisekunteina kunnes tapahtuma alkaa/saapuu (negatiivinen = jo kaynnissa) */
   startMs: number;
+  /** Alkuajan ISO-muoto (jos saatavilla), kayttetaan paivamaaran nayttoon */
+  startIso?: string;
   level: "red" | "amber" | "green";
   /** Numeerinen "kysynta" pisteytysta varten - max 5/tab valintaan */
   weight: number;
@@ -284,7 +286,10 @@ export function inWindow(item: TimelineItem, maxMinutes: number, minMinutes = -3
 
 export function eventToTimelineItem(e: EventInfo): TimelineItem {
   const time = e.startTime ?? "";
-  const startMs = timeToMs(time);
+  // Jos meilla on tay ISO-aika, kayta sita (oikea paivamaara). Muuten HH:MM-arvio.
+  const startMs = e.startIso
+    ? new Date(e.startIso).getTime() - Date.now()
+    : timeToMs(time);
   const level = e.demandLevel || (e.soldOut ? "red" : "amber");
   // Painotus: red = 100, amber = 50, capacity bonus
   const weight =
@@ -308,6 +313,7 @@ export function eventToTimelineItem(e: EventInfo): TimelineItem {
     subtitle: e.venue,
     time,
     startMs,
+    startIso: e.startIso,
     level,
     weight,
     tag: e.demandTag,
