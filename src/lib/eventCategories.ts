@@ -273,7 +273,7 @@ export function eventToTimelineItem(e: EventInfo): TimelineItem {
 
   return {
     id: `event-${e.id}`,
-    category: categorizeVenue(e.venue),
+    category: categorizeEvent(e.name, e.venue),
     title: e.name,
     subtitle: e.venue,
     time,
