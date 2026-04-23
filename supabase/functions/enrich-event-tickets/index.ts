@@ -69,6 +69,29 @@ const AVAILABILITY_SCHEMA = {
   additionalProperties: false,
 };
 
+/**
+ * Tunnista "ei tietoa" -tyyppiset notesit jotta niita ei nayteta UI:ssa.
+ * Firecrawlin AI-extractor saattaa palauttaa selittavan lauseen kun dataa
+ * ei loytynyt; nama suodatetaan pois.
+ */
+const NO_DATA_PATTERNS = [
+  /tiedot? puuttu/i,
+  /lisatieto/i,
+  /ei saatavilla/i,
+  /tarkista my[oö]hemm/i,
+  /^etsi/i,
+  /^haet/i,
+  /ei tietoa/i,
+  /ei m?yynniss/i, // "Ei myynnissä lippuja" jätetään pois — ei kerro saatavuudesta
+];
+
+function isMeaningfulNote(note: string | null | undefined): boolean {
+  if (!note) return false;
+  const trimmed = note.trim();
+  if (trimmed.length < 3 || trimmed.length > 80) return false;
+  return !NO_DATA_PATTERNS.some((p) => p.test(trimmed));
+}
+
 async function scrapeAvailability(
   url: string,
   eventName: string,
@@ -187,7 +210,12 @@ Deno.serve(async (req) => {
       const update: Record<string, unknown> = { last_scraped_at: now };
       if (loadFactor !== null) update.load_factor = loadFactor;
       if (scraped.sold_out === true) update.sold_out = true;
-      if (scraped.notes) update.availability_note = scraped.notes;
+      if (isMeaningfulNote(scraped.notes)) {
+        update.availability_note = scraped.notes;
+      } else {
+        // Tyhjenna jos aiemmin oli mutta nyt ei merkityksellinen
+        update.availability_note = null;
+      }
       if (loadFactor !== null && ev.capacity) {
         update.tickets_sold = Math.round(loadFactor * ev.capacity);
       }
