@@ -338,53 +338,77 @@ export async function getTodayStats(): Promise<TodayStats> {
   };
 }
 
-export interface PatternRow {
-  hour_of_day: number;
-  day_of_week: number;
-  start_area: string;
-  trip_count: number;
-  avg_fare: number;
-  avg_distance: number;
+export interface AreaPrediction {
+  area: string;
+  trips: number;
+  avgFare: number;
 }
 
 /**
- * Hakee tämän hetken (tunti × viikonpäivä) historialliset patternit.
- * Palauttaa kokonaismäärän + parhaan lähtöalueen.
+ * Hakee historialliset kyydit annetuille tunneille tiettynä viikonpäivänä,
+ * ryhmittelee lähtöalueen mukaan ja palauttaa top-N alueet.
+ *
+ * Lasketaan client-puolella koska osoitteet ovat raakakoordinaatteja —
+ * alueisiin ryhmittely tapahtuu nimettyjen Helsingin alueiden mukaan.
+ */
+export async function getTopAreasForWindow(opts: {
+  hours: number[];          // esim. [14, 15] = klo 14–16 historia
+  daysOfWeek?: number[];    // ISO ma=1...su=7; default = nykyinen viikonpäivä
+  topN?: number;
+}): Promise<{ totalTrips: number; areas: AreaPrediction[] }> {
+  const dows = opts.daysOfWeek ?? [(new Date().getDay() + 6) % 7 + 1];
+  const topN = opts.topN ?? 5;
+
+  const { data, error } = await supabase
+    .from("taxi_trips")
+    .select("start_address,start_lat,start_lon,fare_eur,hour_of_day,day_of_week")
+    .in("hour_of_day", opts.hours)
+    .in("day_of_week", dows)
+    .limit(5000);
+
+  if (error || !data) {
+    console.error("getTopAreasForWindow error", error);
+    return { totalTrips: 0, areas: [] };
+  }
+
+  const counts = new Map<string, { count: number; fareSum: number; fareN: number }>();
+  for (const t of data) {
+    const area = resolveAreaName(t.start_address, t.start_lat, t.start_lon);
+    if (!area || area === "—") continue;
+    const cur = counts.get(area) ?? { count: 0, fareSum: 0, fareN: 0 };
+    cur.count += 1;
+    if (typeof t.fare_eur === "number") { cur.fareSum += t.fare_eur; cur.fareN += 1; }
+    counts.set(area, cur);
+  }
+
+  const areas: AreaPrediction[] = Array.from(counts.entries())
+    .map(([area, v]) => ({
+      area,
+      trips: v.count,
+      avgFare: v.fareN > 0 ? v.fareSum / v.fareN : 0,
+    }))
+    .sort((a, b) => b.trips - a.trips)
+    .slice(0, topN);
+
+  return { totalTrips: data.length, areas };
+}
+
+/**
+ * Yhteensopivuus-wrapper: nykyisen tunnin paras lähtöalue.
  */
 export async function getCurrentHourPattern(): Promise<{
   totalTrips: number;
   bestArea: string | null;
   bestAreaCount: number;
 }> {
-  const now = new Date();
-  // Käytä Helsingin aikaa (näkymä on jo Helsinki-aikavyöhykkeellä)
-  const hour = now.getHours();
-  const isoDow = ((now.getDay() + 6) % 7) + 1; // ma=1 ... su=7
-
-  // trip_patterns ei ole types.ts:ssä → käytetään raw RPC -tyylillä `from` minkä TS ei tunne.
-  // Käytetään suoraa fetchia REST-rajapintaan, jotta saadaan näkymästä tiedot.
-  const url = `${import.meta.env.VITE_SUPABASE_URL}/rest/v1/trip_patterns?hour_of_day=eq.${hour}&day_of_week=eq.${isoDow}&select=start_area,trip_count`;
-  try {
-    const res = await fetch(url, {
-      headers: {
-        apikey: import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
-        Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}`,
-      },
-    });
-    if (!res.ok) return { totalTrips: 0, bestArea: null, bestAreaCount: 0 };
-    const rows = (await res.json()) as Array<{ start_area: string; trip_count: number }>;
-    let total = 0;
-    let best: string | null = null;
-    let bestC = 0;
-    for (const r of rows) {
-      total += r.trip_count;
-      if (r.trip_count > bestC) { bestC = r.trip_count; best = r.start_area; }
-    }
-    return { totalTrips: total, bestArea: best, bestAreaCount: bestC };
-  } catch (e) {
-    console.error("getCurrentHourPattern error", e);
-    return { totalTrips: 0, bestArea: null, bestAreaCount: 0 };
-  }
+  const hour = new Date().getHours();
+  const { totalTrips, areas } = await getTopAreasForWindow({ hours: [hour], topN: 1 });
+  const best = areas[0];
+  return {
+    totalTrips,
+    bestArea: best?.area ?? null,
+    bestAreaCount: best?.trips ?? 0,
+  };
 }
 
 export const DAY_LABELS_FI = ["Ma", "Ti", "Ke", "To", "Pe", "La", "Su"];
