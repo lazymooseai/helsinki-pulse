@@ -697,6 +697,117 @@ const AddEventModal = ({ onClose, onSaved }: { onClose: () => void; onSaved: () 
   );
 };
 
+/* ── Detail Sheet for Timeline items (yhdistaa kaikki lahteet) ── */
+const TimelineDetailSheet = ({ item, onClose }: { item: TimelineItem | null; onClose: () => void }) => {
+  if (!item) return null;
+
+  // Yhteinen otsikko + tagi-renderointi, kohteen mukaan tarkat kentat
+  type Field = { label: string; value: string; highlight?: boolean };
+  let icon: React.ReactNode = <Ticket className="h-7 w-7" />;
+  let title = item.title;
+  let subtitle = item.subtitle;
+  let fields: Field[] = [];
+  let externalUrl: string | undefined;
+  let externalLabel: string | undefined;
+
+  switch (item.raw.kind) {
+    case "flight": {
+      const f = item.raw.data as FlightArrival;
+      icon = <Plane className="h-7 w-7" />;
+      title = `${f.flightNumber} • ${f.airline}`;
+      subtitle = `${f.origin} → Helsinki-Vantaa`;
+      fields = [
+        { label: "Saapumisaika (ETA)", value: f.estimatedTime, highlight: true },
+        { label: "Aikataulun mukainen", value: f.scheduledTime },
+        ...(f.delayMinutes !== 0
+          ? [{ label: "Viive", value: `${f.delayMinutes > 0 ? "+" : ""}${f.delayMinutes} min` }]
+          : []),
+        ...(f.terminal ? [{ label: "Terminaali", value: f.terminal }] : []),
+        ...(f.gate ? [{ label: "Portti", value: f.gate }] : []),
+        ...(f.belt ? [{ label: "Matkatavarahihna", value: f.belt }] : []),
+        { label: "Kysyntä", value: f.demandTag },
+      ];
+      externalUrl = "https://www.finavia.fi/fi/lentoasemat/helsinki-vantaa/saapuvat-lennot";
+      externalLabel = "Avaa Finavia";
+      break;
+    }
+    case "train": {
+      const t = item.raw.data as TrainDelay;
+      icon = <TrainFront className="h-7 w-7" />;
+      title = `${t.line} ${t.origin}`;
+      subtitle = `Saapuu ${item.subtitle}`;
+      fields = [
+        { label: "Saapumisaika", value: t.arrivalTime, highlight: true },
+        { label: "Myöhästyminen", value: t.delayMinutes > 0 ? `+${t.delayMinutes} min` : "Aikataulussa" },
+      ];
+      externalUrl = "https://junalahdot.fi/helsinki";
+      externalLabel = "Avaa junalahdot.fi";
+      break;
+    }
+    case "ship": {
+      const s = item.raw.data as ShipArrival;
+      icon = <Ship className="h-7 w-7" />;
+      title = s.ship;
+      subtitle = s.harbor;
+      fields = [
+        { label: "ETA", value: s.eta, highlight: true },
+        { label: "Matkustajia (live)", value: s.estimatedPax ? `~${s.estimatedPax.toLocaleString("fi-FI")}` : "—" },
+        { label: "Maksimikapasiteetti", value: s.pax.toLocaleString("fi-FI") },
+      ];
+      externalUrl = "https://averio.fi/laivat";
+      externalLabel = "Avaa averio.fi";
+      break;
+    }
+    case "sports": {
+      const sp = item.raw.data as SportsEvent;
+      icon = <Ticket className="h-7 w-7" />;
+      title = `${sp.homeTeam} – ${sp.awayTeam}`;
+      subtitle = `${sp.league} • ${sp.venue}`;
+      fields = [
+        { label: "Alkamisaika", value: sp.startTime, highlight: true },
+        { label: "Yleisöarvio", value: `~${sp.expectedAttendance.toLocaleString("fi-FI")} hlö` },
+        { label: "Kapasiteetti", value: sp.capacity.toLocaleString("fi-FI") },
+        { label: "Täyttö", value: `${Math.round((sp.expectedAttendance / sp.capacity) * 100)}%` },
+        { label: "Kysyntä", value: sp.demandTag },
+      ];
+      externalUrl = getDeepLinkForVenue(sp.venue) ?? undefined;
+      externalLabel = externalUrl ? "Avaa tapahtumapaikka" : undefined;
+      break;
+    }
+    case "event":
+    default: {
+      const e = item.raw.data as EventInfo;
+      icon = <Ticket className="h-7 w-7" />;
+      title = e.name;
+      subtitle = e.venue;
+      fields = [
+        ...(e.startTime ? [{ label: "Alkamisaika", value: e.startTime, highlight: true }] : []),
+        ...(e.endTime ? [{ label: "Päättyy", value: e.endTime }] : []),
+        ...(e.capacity ? [{ label: "Kapasiteetti", value: e.capacity.toLocaleString("fi-FI") }] : []),
+        ...(e.estimatedAttendance ? [{ label: "Yleisöarvio", value: `~${e.estimatedAttendance.toLocaleString("fi-FI")} hlö` }] : []),
+        { label: "Loppuunmyyty", value: e.soldOut ? "Kyllä" : "Ei" },
+        ...(e.demandTag ? [{ label: "Kysyntä", value: e.demandTag }] : []),
+      ];
+      externalUrl = getDeepLinkForVenue(e.venue) ?? undefined;
+      externalLabel = externalUrl ? "Avaa tapahtumapaikka" : undefined;
+      break;
+    }
+  }
+
+  return (
+    <DetailSheet
+      open
+      onClose={onClose}
+      icon={icon}
+      title={title}
+      subtitle={subtitle}
+      fields={fields}
+      externalUrl={externalUrl}
+      externalLabel={externalLabel}
+    />
+  );
+};
+
 const CapacityFeeds = () => {
   const { state, lastFetch, trainStation, setTrainStation, refreshAll } = useDashboard();
   const [editingEventId, setEditingEventId] = useState<string | null>(null);
