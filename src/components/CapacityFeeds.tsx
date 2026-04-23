@@ -9,6 +9,7 @@ import EventsTimeline from "@/components/EventsTimeline";
 import DetailSheet from "@/components/DetailSheet";
 import type { TimelineItem } from "@/lib/eventCategories";
 import type { FlightArrival, ShipArrival, TrainDelay, SportsEvent } from "@/lib/types";
+import { openExternal } from "@/lib/openExternal";
 
 /**
  * Merkittävä-suodatus: tapahtuma kelpaa jos jokin näistä pätee:
@@ -90,7 +91,7 @@ const statusTimeColor = {
 const FeedCard = ({ icon, title, titleExtra, detail, subDetail, time, status, badge, demandTag, deepLink, isLive }: FeedItem) => (
   <div
     className={`flex items-center gap-4 rounded-xl bg-card border-l-4 ${statusBorder[status]} border border-border px-5 py-5 ${deepLink ? "cursor-pointer active:scale-[0.98] transition-all" : ""}`}
-    onClick={() => deepLink && window.open(deepLink, "_blank", "noopener,noreferrer")}
+    onClick={() => deepLink && openExternal(deepLink)}
   >
     <div className={`shrink-0 ${status === "red" ? "text-destructive" : status === "amber" ? "text-accent" : "text-primary"}`}>
       {icon}
@@ -324,7 +325,7 @@ const EventCard = ({ event, override, onOverride, dispatchEdit, onEdit, isLive }
         <div className="flex items-center gap-1">
           {deepLink && (
             <button
-              onClick={(e) => { e.stopPropagation(); window.open(deepLink, "_blank", "noopener,noreferrer"); }}
+              onClick={(e) => { e.stopPropagation(); openExternal(deepLink); }}
               className="h-10 w-10 rounded-lg bg-muted flex items-center justify-center border border-border active:bg-foreground/10 transition-colors"
               title="Avaa lähde"
             >
