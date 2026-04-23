@@ -111,6 +111,7 @@ const KULTTUURI_NAME_KEYS = [
   "orchestra",
   "jazz",
   "klubi",
+  "club",
   "stand up",
   "stand-up",
   "comedy",
@@ -145,10 +146,8 @@ const KULTTUURI_NAME_KEYS = [
  * vaikka venue olisi yleishalli.
  */
 const URHEILU_NAME_KEYS = [
-  "vs ",
+  " vs ",
   " vs.",
-  " - ",
-  " – ",
   "ottelu",
   "match",
   "liiga",
@@ -180,6 +179,18 @@ const URHEILU_NAME_KEYS = [
   "nyrkkeily",
   "kamppailu",
   "mma",
+  "hifk",
+  "hjk",
+  "jokerit",
+  "tappara",
+  "kärpät",
+  "ilves",
+  "tps",
+  "lukko",
+  "saipa",
+  "sport",
+  "kalpa",
+  "honka",
 ];
 
 /**
@@ -214,7 +225,15 @@ export function categorizeEvent(name: string, venue: string): EventCategory {
   if (nameSaysCulture && !nameSaysSports) return "kulttuuri";
   if (nameSaysSports && !nameSaysCulture) return "urheilu";
 
-  // 2) Venue-pohjainen fallback
+  // 2) Venue-pohjainen fallback. HUOM: monitoimiareenoille (Helsinki Halli,
+  // Veikkaus Arena, Olympiastadion) ei voi luottaa pelkkaan venueen — niissa
+  // on seka konsertteja etta otteluita. Jos nimessa ei ole selkeaa
+  // urheilukeywordia, oletus on kulttuuri (konsertti/show).
+  const isMultiUseArena = /helsinki halli|veikkaus.?arena|hartwall|olympiastadion|messukeskus|kulttuuritalo/i.test(v);
+  if (isMultiUseArena) {
+    return nameSaysSports ? "urheilu" : "kulttuuri";
+  }
+
   const venueSaysCulture = KULTTUURI_KEYS.some((k) => v.includes(k));
   const venueSaysSports = URHEILU_KEYS.some((k) => v.includes(k));
 
