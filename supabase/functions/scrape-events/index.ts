@@ -92,6 +92,72 @@ async function firecrawlScrape(url: string, apiKey: string): Promise<string> {
   return data.data?.markdown || data.markdown || '';
 }
 
+interface ParsedAggregatorEvent extends ParsedEvent {
+  venue: string;
+}
+
+/**
+ * Parsii stadissa.fi-tyyppisen aggregaattorimarkdownin (Helsinki + Espoo).
+ * Palauttaa rivit, joissa on { name, venue, start_time, end_time }.
+ * AI:n tehtävä: tunnistaa päivämääräotsikot + tapahtumarivit "HH | nimi | venue".
+ */
+async function aiParseAggregator(markdown: string, lovableKey: string): Promise<ParsedAggregatorEvent[]> {
+  const today = new Date().toISOString().slice(0, 10);
+  const sevenDays = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+
+  const prompt = `Olet tapahtumadatan jäsentelijä. Annetussa markdownissa on Helsingin/Espoon tapahtumakalenteri.
+Päivämäärät esitellään otsikoissa kuten "torstai 23 huhtikuu 2026". Niiden alla on tapahtumat muodossa:
+  "HH" (aloitustunti)
+  "[Tapahtuman nimi](url "Tapahtuman nimi | Venue")"
+
+TEHTÄVÄ: Poimi VAIN tapahtumat aikavälillä ${today} - ${sevenDays} (Europe/Helsinki).
+
+Palauta JSON:
+{
+  "events": [
+    {
+      "name": "Tapahtuman nimi (ilman venuea)",
+      "venue": "Venue",
+      "start_time": "2026-04-23T19:00:00+03:00",
+      "end_time": "2026-04-23T21:30:00+03:00"
+    }
+  ]
+}
+
+SÄÄNNÖT:
+- Käytä title-attribuutista venuen nimi (osa "| Venue" jälkeen). Jos puuttuu, jätä tyhjäksi.
+- start_time = otsikkopäivä + tunti (HH:00). Käytä +03:00 (kesäaika) huhtikuu–lokakuu, +02:00 muulloin.
+- end_time = start_time + 2.5h (oletus konsertille/teatterille).
+- Skipataan toistuvat näyttelyt, joiden aloitustunti on alle 12 ja jotka kestävät koko päivän (esim. galleriat) — keskity iltatapahtumiin (klo 17+) JA isoihin lounastapahtumiin.
+- Ota MUKAAN: konsertit, teatteri, ooppera, urheilu, suuret esitykset, festivaalit. ÄLÄ ota mukaan: pubivisat, baaripelit, päivittäiset bingoiltat, jatkuvat näyttelyt.
+- ÄLÄ keksi tapahtumia. Vain markdownissa näkyvät.
+
+MARKDOWN:
+${markdown.slice(0, 18000)}`;
+
+  const res = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${lovableKey}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      model: 'google/gemini-2.5-flash',
+      messages: [{ role: 'user', content: prompt }],
+      response_format: { type: 'json_object' },
+    }),
+  });
+  if (!res.ok) {
+    const t = await res.text();
+    throw new Error(`AI gateway ${res.status}: ${t.slice(0, 200)}`);
+  }
+  const data = await res.json();
+  const content = data.choices?.[0]?.message?.content || '{"events":[]}';
+  try {
+    const parsed = JSON.parse(content);
+    return Array.isArray(parsed.events) ? parsed.events : [];
+  } catch {
+    return [];
+  }
+}
+
 async function aiParseEvents(venue: string, markdown: string, lovableKey: string): Promise<ParsedEvent[]> {
   const today = new Date().toISOString().slice(0, 10);
   const sevenDays = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
