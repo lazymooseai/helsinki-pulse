@@ -16,9 +16,22 @@ type: feature
 - Oletusikkuna: Nyt + 2h, +2h-nappi laajentaa 4h asti
 - Kova raja: max 5 itemia/tab, "Nayta kaikki N" -nappi laajentaa
 - Lajittelu: weight (red+capacity bonus) > startMs
-- Kategorisointi venuen perusteella: lib/eventCategories.ts (URHEILU_KEYS / KULTTUURI_KEYS)
+- Kategorisointi: ENSIN tapahtuman NIMI (KULTTUURI_NAME_KEYS / URHEILU_NAME_KEYS),
+  vasta sitten venue. Korjaa ristiriidan jossa konsertti urheiluareenalla
+  meni urheiluksi. Avain: lib/eventCategories.ts -> categorizeEvent(name, venue).
 - Klikkaus avaa yhteisen TimelineDetailSheet (kaikki lahteet samalla kuvuolla)
+- Lipunmyyntiprosentti nakyy kortilla (Ticket-icon + %), detailissa rivi
+  "Lipunmyynti" ja "Tilanne" (availability_note).
 - AddEventModal + DispatchEditModal sailyvat ennallaan
+
+**Lipunmyyntitiedot:**
+- Tarkat: TICKET_SOURCES (lippu.fi, tiketti.fi, venue-omat) skrapataan ja
+  matchataan nimella aggregaattorin tapahtumiin.
+- AI-arvio: jaljelle jaaville tehdaan yksi batch-call gemini-2.5-flashille,
+  joka palauttaa load_factor (0..1) + reasoning (heuristiikka venue-koko +
+  artisti + viikonpaiva).
+- DB: events.availability_note tallentaa joko "Vain N paikkaa jaljella" tai
+  "Arvio: ...". UI naytttaa sen "Tilanne"-rivilla.
 
 **Realtime:** events-taulu kuuntelussa DashboardContextissa, refetch automaattisesti.
 

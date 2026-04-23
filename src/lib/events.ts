@@ -62,6 +62,7 @@ interface DbEventRow {
   demand_tag: string | null;
   source: string;
   is_manual: boolean;
+  availability_note?: string | null;
 }
 
 function rowToEvent(row: DbEventRow): EventInfo {
@@ -83,6 +84,8 @@ function rowToEvent(row: DbEventRow): EventInfo {
     endTime: formatTime(row.end_time),
     capacity: row.capacity ?? undefined,
     estimatedAttendance: attendance,
+    loadFactor: row.load_factor != null ? Number(row.load_factor) : undefined,
+    availabilityNote: row.availability_note ?? undefined,
   };
 }
 

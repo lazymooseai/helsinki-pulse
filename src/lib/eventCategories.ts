@@ -40,6 +40,8 @@ export interface TimelineItem {
   tag?: string;
   /** Kapasiteetti tai matkustajamaara, jos tiedossa */
   capacity?: number;
+  /** Lipunmyyntiaste 0..100 (jos tiedossa), naytetaan kortilla */
+  loadPct?: number;
   /** Alkuperainen objekti, jotta detail-paneeli toimii */
   raw: { kind: "flight" | "train" | "ship" | "event" | "sports"; data: unknown };
 }
@@ -86,12 +88,145 @@ const KULTTUURI_KEYS = [
   "kallio-kuninkala",
 ];
 
-/** Luokittelee venuen sanan perusteella. Muut on default. */
-export function categorizeVenue(venue: string): EventCategory {
-  const v = venue.toLowerCase();
-  if (URHEILU_KEYS.some((k) => v.includes(k))) return "urheilu";
-  if (KULTTUURI_KEYS.some((k) => v.includes(k))) return "kulttuuri";
+/**
+ * Sanat, jotka tapahtuman NIMESSA aina vihjaavat kulttuuriin,
+ * vaikka venue olisi urheiluareena (esim. konsertti Veikkaus Arenalla).
+ */
+const KULTTUURI_NAME_KEYS = [
+  "konsertti",
+  "concert",
+  "live",
+  "tour",
+  "kiertue",
+  "festivaali",
+  "festival",
+  "ooppera",
+  "opera",
+  "ballet",
+  "baletti",
+  "musikaali",
+  "musical",
+  "sinfonia",
+  "orkesteri",
+  "orchestra",
+  "jazz",
+  "klubi",
+  "stand up",
+  "stand-up",
+  "comedy",
+  "show",
+  "näyttely",
+  "naytttely",
+  "teatteri",
+  "näytäntö",
+  "esitys",
+  "duo",
+  "trio",
+  "quartet",
+  "kvartetti",
+  "band",
+  "bändi",
+  "chorus",
+  "kuoro",
+  "dj",
+  "rap",
+  "metal",
+  "hevi",
+  "rock",
+  "punk",
+  "pop ",
+  "indie",
+  "klassinen",
+  "akustinen",
+];
+
+/**
+ * Sanat, jotka tapahtuman NIMESSA aina vihjaavat urheiluun,
+ * vaikka venue olisi yleishalli.
+ */
+const URHEILU_NAME_KEYS = [
+  "vs ",
+  " vs.",
+  " - ",
+  " – ",
+  "ottelu",
+  "match",
+  "liiga",
+  "league",
+  "cup",
+  "mestaruus",
+  "championship",
+  "turnaus",
+  "tournament",
+  "playoff",
+  "pudotuspeli",
+  "finaali",
+  "final",
+  "derby",
+  "futis",
+  "jalkapallo",
+  "football",
+  "jääkiekko",
+  "kiekko",
+  "hockey",
+  "koripallo",
+  "basket",
+  "lentopallo",
+  "salibandy",
+  "salibändy",
+  "floorball",
+  "ufc",
+  "boxing",
+  "nyrkkeily",
+  "kamppailu",
+  "mma",
+];
+
+/**
+ * Tarkistaa osuuko avainsana sanaan kokonaisina sanoina (rajat välimerkein),
+ * jotta esim. "areena" osuu mutta "areenakatu" ei.
+ */
+function hasKeyword(text: string, key: string): boolean {
+  if (key.includes(" ")) return text.includes(key);
+  // sanaraja: alku/loppu tai ei-kirjain ympärillä
+  const re = new RegExp(`(^|[^a-zåäö0-9])${key}([^a-zåäö0-9]|$)`, "i");
+  return re.test(text);
+}
+
+/**
+ * Luokittelee tapahtuman ENSISIJAISESTI nimen perusteella ja
+ * VAIN sen jälkeen venuen perusteella. Tämä korjaa ristiriidan,
+ * jossa konsertti urheiluareenalla menisi urheiluksi.
+ *
+ * Algoritmi:
+ *   1. Jos nimi sisältää selkeän kulttuurisanan -> kulttuuri.
+ *   2. Jos nimi sisältää selkeän urheilusanan -> urheilu.
+ *   3. Muuten venuen mukaan (urheiluareena -> urheilu, muu -> kulttuuri/muut).
+ */
+export function categorizeEvent(name: string, venue: string): EventCategory {
+  const n = (name || "").toLowerCase();
+  const v = (venue || "").toLowerCase();
+
+  // 1) Nimi-pohjainen tunnistus voittaa
+  const nameSaysCulture = KULTTUURI_NAME_KEYS.some((k) => hasKeyword(n, k));
+  const nameSaysSports = URHEILU_NAME_KEYS.some((k) => hasKeyword(n, k));
+
+  if (nameSaysCulture && !nameSaysSports) return "kulttuuri";
+  if (nameSaysSports && !nameSaysCulture) return "urheilu";
+
+  // 2) Venue-pohjainen fallback
+  const venueSaysCulture = KULTTUURI_KEYS.some((k) => v.includes(k));
+  const venueSaysSports = URHEILU_KEYS.some((k) => v.includes(k));
+
+  if (venueSaysCulture) return "kulttuuri";
+  if (venueSaysSports) return "urheilu";
+
   return "muut";
+}
+
+/** Vanha API-yhteensopivuus: vain venuen perusteella. */
+export function categorizeVenue(venue: string): EventCategory {
+  return categorizeEvent("", venue);
 }
 
 // ---------------------------------------------------------------------------
@@ -138,9 +273,18 @@ export function eventToTimelineItem(e: EventInfo): TimelineItem {
     (e.capacity ? Math.min(50, e.capacity / 100) : 0) +
     (e.soldOut ? 30 : 0);
 
+  const loadPct =
+    e.soldOut
+      ? 100
+      : e.loadFactor != null
+      ? Math.round(Number(e.loadFactor) * 100)
+      : e.capacity && e.estimatedAttendance
+      ? Math.round((e.estimatedAttendance / e.capacity) * 100)
+      : undefined;
+
   return {
     id: `event-${e.id}`,
-    category: categorizeVenue(e.venue),
+    category: categorizeEvent(e.name, e.venue),
     title: e.name,
     subtitle: e.venue,
     time,
@@ -149,6 +293,7 @@ export function eventToTimelineItem(e: EventInfo): TimelineItem {
     weight,
     tag: e.demandTag,
     capacity: e.capacity,
+    loadPct,
     raw: { kind: "event", data: e },
   };
 }
@@ -232,6 +377,8 @@ export function sportsToTimelineItem(s: SportsEvent): TimelineItem {
     weight,
     tag: s.demandTag,
     capacity: s.capacity,
+    loadPct:
+      s.capacity > 0 ? Math.round((s.expectedAttendance / s.capacity) * 100) : undefined,
     raw: { kind: "sports", data: s },
   };
 }
