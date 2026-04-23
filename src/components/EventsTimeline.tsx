@@ -336,7 +336,7 @@ const EventsTimeline = ({ onSelect, onAddEvent }: EventsTimelineProps) => {
         </button>
         <div className="flex-1 grid grid-cols-4 gap-1">
           {CATEGORY_ORDER.map((cat, i) => {
-            const count = grouped[cat].length;
+            const count = totalCounts[cat];
             const isActive = i === tabIdx;
             return (
               <button
@@ -377,11 +377,11 @@ const EventsTimeline = ({ onSelect, onAddEvent }: EventsTimelineProps) => {
 
       {/* Tab-sisalto, swaipattava */}
       <div {...swipe} className="min-h-[120px]">
-        {visibleItems.length === 0 ? (
+        {!hasAnything ? (
           <div className="rounded-xl bg-card border border-border p-5 text-center">
             <p className="text-base font-bold text-muted-foreground">
               Ei {CATEGORY_LABELS[activeCategory].toLowerCase()}-tapahtumia
-              {windowH === 2 ? " seuraavan 2h aikana" : " seuraavan 4h aikana"}.
+              tanaan eika tulevina paivina.
             </p>
             {windowH === 2 && (
               <button
@@ -393,10 +393,37 @@ const EventsTimeline = ({ onSelect, onAddEvent }: EventsTimelineProps) => {
             )}
           </div>
         ) : (
-          <div className="flex flex-col gap-2">
-            {visibleItems.map((item) => (
-              <TimelineCard key={item.id} item={item} onClick={() => onSelect?.(item)} />
-            ))}
+          <div className="flex flex-col gap-3">
+            {/* TANAAN */}
+            <div className="flex flex-col gap-2">
+              <h3 className="text-[11px] font-black uppercase tracking-widest text-muted-foreground/80 px-1">
+                Tanaan {todayItems.length > 0 && `(${todayItems.length})`}
+              </h3>
+              {visibleToday.length === 0 ? (
+                <div className="rounded-lg bg-card/50 border border-border/50 p-3 text-center">
+                  <p className="text-xs font-bold text-muted-foreground">
+                    Ei tapahtumia {windowH === 2 ? "seur. 2h" : "seur. 4h"} aikana
+                  </p>
+                </div>
+              ) : (
+                visibleToday.map((item) => (
+                  <TimelineCard key={item.id} item={item} onClick={() => onSelect?.(item)} />
+                ))
+              )}
+            </div>
+
+            {/* TULEVAT PAIVAT */}
+            {upcomingItems.length > 0 && (
+              <div className="flex flex-col gap-2">
+                <h3 className="text-[11px] font-black uppercase tracking-widest text-muted-foreground/80 px-1 pt-1 border-t border-border/40">
+                  Tulevat paivat ({upcomingItems.length})
+                </h3>
+                {visibleUpcoming.map((item) => (
+                  <TimelineCard key={item.id} item={item} onClick={() => onSelect?.(item)} />
+                ))}
+              </div>
+            )}
+
             {hiddenCount > 0 && (
               <button
                 onClick={() =>
@@ -404,17 +431,17 @@ const EventsTimeline = ({ onSelect, onAddEvent }: EventsTimelineProps) => {
                 }
                 className="w-full rounded-xl border-2 border-dashed border-border bg-card/50 py-3 text-sm font-black uppercase tracking-wider text-muted-foreground active:scale-[0.98]"
               >
-                Näytä kaikki {activeItems.length} ({hiddenCount} lisää)
+                Nayta kaikki ({hiddenCount} lisaa)
               </button>
             )}
-            {isExpanded && activeItems.length > HARD_LIMIT_PER_TAB && (
+            {isExpanded && (todayItems.length + upcomingItems.length) > HARD_LIMIT_PER_TAB && (
               <button
                 onClick={() =>
                   setExpanded((prev) => ({ ...prev, [activeCategory]: false }))
                 }
                 className="w-full rounded-xl bg-muted py-2 text-xs font-black uppercase tracking-wider text-muted-foreground active:scale-[0.98]"
               >
-                Tiivistä top {HARD_LIMIT_PER_TAB}
+                Tiivista top {HARD_LIMIT_PER_TAB}
               </button>
             )}
           </div>
