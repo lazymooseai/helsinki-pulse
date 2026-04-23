@@ -137,65 +137,85 @@ interface RawFlight {
 }
 
 function parseMarkdownFlights(md: string): RawFlight[] {
+  // Finavian saapuvien sivulla jokainen lento on monirivinen lohko, esim:
+  //   14:40
+  //   Vaasa
+  //   AY314, JL6874, AS7694
+  //   Laskeutunut 14:51   tai   Arvioitu aika 16:08   tai   Peruttu
+  //   Tiedot
+  //
+  // Käytetään "Tiedot"-riviä lohkojen erottimena ja kelataan taaksepäin.
+
+  const lines = md.split("\n").map((l) => l.trim());
   const flights: RawFlight[] = [];
-  const lines = md.split("\n");
 
-  // Etsi rivit muotoa: "AY1234 Helsinki–Lontoo 14:25 14:30 Aikataulussa T2 G24"
-  // Tai markdown-taulukko: | AY1234 | Lontoo | 14:25 | 14:30 | ... |
+  for (let i = 0; i < lines.length; i++) {
+    if (lines[i] !== "Tiedot") continue;
 
-  for (const raw of lines) {
-    const line = raw.trim();
-    if (!line) continue;
+    // Kerää enintään 6 edellistä ei-tyhjää riviä
+    const block: string[] = [];
+    for (let j = i - 1; j >= 0 && block.length < 6; j--) {
+      if (!lines[j]) continue;
+      // Pysähdy heti kun törmätään toiseen "Tiedot" tai otsikkoon
+      if (lines[j] === "Tiedot") break;
+      if (lines[j].startsWith("#") || lines[j].startsWith("|")) break;
+      block.unshift(lines[j]);
+    }
+    if (block.length < 3) continue;
 
-    // Lentonumero: 2-3 kirjainta + 1-4 numeroa
-    const flightMatch = line.match(/\b([A-Z]{2,3}\d{1,4}[A-Z]?)\b/);
-    if (!flightMatch) continue;
-    const flightNumber = flightMatch[1];
+    // 1. rivi: scheduled HH:MM
+    const schedMatch = block[0].match(/^(\d{1,2}):(\d{2})$/);
+    if (!schedMatch) continue;
+    const scheduled = `${schedMatch[1].padStart(2, "0")}:${schedMatch[2]}`;
 
-    // Etsi kaikki HH:MM tai HH.MM ajat rivillä
-    const times = [...line.matchAll(/\b(\d{1,2}[:.]\d{2})\b/g)].map((m) => m[1]);
-    if (times.length === 0) continue;
+    // Etsi loput: origin = ensimmäinen rivi joka EI ole aika, EI lentonumero, EI status
+    // Lentonumero-rivi: alkaa 2-3 isolla kirjaimella + numeroilla
+    const flightLineRe = /^[A-Z]{1,3}\d+[A-Z]?(?:\s*,\s*[A-Z]{1,3}\d+[A-Z]?)*$/;
+    const isStatus = (s: string) =>
+      /laskeutu|peru|arvioitu|viivä|odotett|saapunut|lähtenyt|portt|kutsu|saapumas|saapuu/i.test(s);
 
-    // Pilko taulukon solut tai välilyönnit
-    const cells = line.includes("|")
-      ? line.split("|").map((c) => c.trim()).filter(Boolean)
-      : line.split(/\s{2,}|\t+/).map((c) => c.trim()).filter(Boolean);
-
-    // Yritä löytää lähtökaupunki: ei-numeerinen, ei-aika, ei lentonumero
     let origin = "";
-    for (const c of cells) {
-      if (c === flightNumber) continue;
-      if (/^\d{1,2}[:.]\d{2}$/.test(c)) continue;
-      if (/^[A-Z]{2,3}\d{1,4}/.test(c)) continue;
-      // Sopiva origin: sisältää aakkosia, yli 2 merkkiä
-      if (/[a-zA-ZäöåÄÖÅ]{3,}/.test(c) && c.length < 60) {
-        origin = c.replace(/^.*?[–\-]\s*/, "").trim(); // poista "Helsinki–" prefix
-        break;
+    let flightNumbersLine = "";
+    let statusLine = "";
+
+    for (let k = 1; k < block.length; k++) {
+      const row = block[k];
+      if (/^\d{1,2}:\d{2}$/.test(row)) continue;
+      if (flightLineRe.test(row)) { flightNumbersLine = row; continue; }
+      if (isStatus(row)) { statusLine = row; continue; }
+      if (!origin && /[a-zA-ZäöåÄÖÅ]{3,}/.test(row) && row.length < 60) {
+        origin = row;
       }
     }
-    if (!origin) continue;
+    if (!origin || !flightNumbersLine) continue;
 
-    // Etsi status (avainsanoja)
-    const lowerLine = line.toLowerCase();
+    const flightNumber = flightNumbersLine.split(",")[0].trim();
+
+    // Tulkitse status ja arvioitu aika
     let status = "Aikataulussa";
-    if (lowerLine.includes("laskeutu")) status = "Laskeutunut";
-    else if (lowerLine.includes("perut")) status = "Peruttu";
-    else if (lowerLine.includes("viiväs") || lowerLine.includes("delayed")) status = "Viivästynyt";
-    else if (lowerLine.includes("expected") || lowerLine.includes("odotett")) status = "Odotettu";
-
-    // Terminaali (T1/T2)
-    const termMatch = line.match(/\bT([12])\b/);
-    // Hihna (esim. 5A, 12)
-    const beltMatch = line.match(/\b(?:hihna|belt)[\s:]*([0-9]+[A-Z]?)/i);
+    let estimated: string | undefined;
+    if (statusLine) {
+      const lower = statusLine.toLowerCase();
+      const timeMatch = statusLine.match(/(\d{1,2}):(\d{2})/);
+      if (lower.includes("laskeutu")) {
+        status = "Laskeutunut";
+        if (timeMatch) estimated = `${timeMatch[1].padStart(2, "0")}:${timeMatch[2]}`;
+      } else if (lower.includes("peru")) {
+        status = "Peruttu";
+      } else if (lower.includes("arvioitu") || lower.includes("viivä")) {
+        status = "Arvioitu";
+        if (timeMatch) estimated = `${timeMatch[1].padStart(2, "0")}:${timeMatch[2]}`;
+      } else {
+        status = statusLine;
+      }
+    }
 
     flights.push({
       flightNumber,
       origin,
-      scheduled: times[0],
-      estimated: times[1],
+      scheduled,
+      estimated: estimated ?? scheduled,
       status,
-      terminal: termMatch ? `T${termMatch[1]}` : undefined,
-      belt: beltMatch ? beltMatch[1] : undefined,
     });
   }
 
