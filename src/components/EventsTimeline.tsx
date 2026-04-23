@@ -76,6 +76,42 @@ function formatRelative(startMs: number): string {
   return m === 0 ? `${h}h` : `${h}h ${m}min`;
 }
 
+const WEEKDAYS = ["su", "ma", "ti", "ke", "to", "pe", "la"];
+
+/** Palauttaa lyhyen paivamaaran jos tapahtuma EI ole tanaan, muuten tyhjan stringin. */
+function formatDateBadge(iso?: string): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  const now = new Date();
+  const isToday =
+    d.getFullYear() === now.getFullYear() &&
+    d.getMonth() === now.getMonth() &&
+    d.getDate() === now.getDate();
+  if (isToday) return "";
+  const tomorrow = new Date(now);
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  const isTomorrow =
+    d.getFullYear() === tomorrow.getFullYear() &&
+    d.getMonth() === tomorrow.getMonth() &&
+    d.getDate() === tomorrow.getDate();
+  if (isTomorrow) return "Huomenna";
+  return `${WEEKDAYS[d.getDay()]} ${d.getDate()}.${d.getMonth() + 1}.`;
+}
+
+function isItemToday(item: TimelineItem): boolean {
+  if (item.startIso) {
+    const d = new Date(item.startIso);
+    const now = new Date();
+    return (
+      d.getFullYear() === now.getFullYear() &&
+      d.getMonth() === now.getMonth() &&
+      d.getDate() === now.getDate()
+    );
+  }
+  // Ei ISO:a -> oletetaan tanaan (lennot, junat jne. kayttavat HH:MM)
+  return true;
+}
+
 interface TimelineCardProps {
   item: TimelineItem;
   onClick: () => void;
@@ -83,6 +119,7 @@ interface TimelineCardProps {
 
 const TimelineCard = ({ item, onClick }: TimelineCardProps) => {
   const isPast = item.startMs < -5 * 60 * 1000;
+  const dateBadge = formatDateBadge(item.startIso);
   return (
     <button
       onClick={onClick}
@@ -107,6 +144,11 @@ const TimelineCard = ({ item, onClick }: TimelineCardProps) => {
           {item.subtitle}
         </p>
         <div className="flex items-center gap-1.5 mt-1 flex-wrap">
+          {dateBadge && (
+            <span className="inline-block text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded bg-primary/15 text-primary">
+              {dateBadge}
+            </span>
+          )}
           {item.tag && (
             <span
               className={`inline-block text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded ${
