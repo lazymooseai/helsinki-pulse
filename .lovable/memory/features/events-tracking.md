@@ -1,6 +1,6 @@
 ---
 name: Events Tracking
-description: Reaaliaikainen tapahtumahaku Firecrawl-skrapauksella + manuaaliset overridet, 7pv ikkuna
+description: Reaaliaikainen tapahtumahaku Firecrawlilla + 4h aikajananakyma 4 tabilla (Asemat/Kulttuuri/Urheilu/Muut), max 5/tab
 type: feature
 ---
 **Lähde:** `events`-taulu Lovable Cloudissa (RLS public).
@@ -9,12 +9,16 @@ type: feature
 
 **Cron:** `scrape-events-every-2h` ajaa 2h välein (pg_cron + pg_net). Upsert via `external_id`.
 
-**UI (CapacityFeeds.tsx):**
-- "Tapahtumat Tänään (N)" + "Lisää" -nappi
-- Aktiiviseksi laskettu = T-4h ennen alkua → end_time
-- "Tulevat (N) — 7 pv" laajennettava sektio (UpcomingEventCard)
-- AddEventModal: nimi, paikka (KNOWN_VENUES), pvm, alkaa, päättyy, myydyt liput
-- Manuaaliset (is_manual=true) voi poistaa (Trash2-painike)
+**UI (EventsTimeline.tsx + CapacityFeeds.tsx):**
+- 4h aikajana yhdistaa lentoja, junia, laivoja, tapahtumia, urheilua
+- 4 valilehtea swaipattavina (react-swipeable + napit + nuolet):
+  Asemat / Kulttuuri / Urheilu / Muut
+- Oletusikkuna: Nyt + 2h, +2h-nappi laajentaa 4h asti
+- Kova raja: max 5 itemia/tab, "Nayta kaikki N" -nappi laajentaa
+- Lajittelu: weight (red+capacity bonus) > startMs
+- Kategorisointi venuen perusteella: lib/eventCategories.ts (URHEILU_KEYS / KULTTUURI_KEYS)
+- Klikkaus avaa yhteisen TimelineDetailSheet (kaikki lahteet samalla kuvuolla)
+- AddEventModal + DispatchEditModal sailyvat ennallaan
 
 **Realtime:** events-taulu kuuntelussa DashboardContextissa, refetch automaattisesti.
 
