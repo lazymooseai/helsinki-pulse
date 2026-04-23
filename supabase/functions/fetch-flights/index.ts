@@ -1,15 +1,13 @@
 /**
  * fetch-flights
  *
- * Hakee Helsinki-Vantaan (HEL) saapuvat lennot Finavia API:sta.
- * Suodattaa: vain seuraavat 2 tuntia, vain saapuvat (ei lähtevät).
+ * Hakee Helsinki-Vantaan (HEL) saapuvat lennot scrapaten
+ * Finavian julkista saapumistaulua Firecrawlin kautta.
  *
- * Finavia Flights API (apiportal.finavia.fi - Public flights):
- *   GET https://apigw.finavia.fi/flights/public/v0/flights/arr/HEL
- *   Header: app_key: <FINAVIA_API_KEY>
- *   Response: application/xml
+ * Ei vaadi Finavia API -avainta — käyttää FIRECRAWL_API_KEY (managed connection).
  *
- * Caching: 60s muistissa kustannusten minimoimiseksi.
+ * Suodattaa: vain seuraavat 2 tuntia.
+ * Cache: 60s muistissa (scrape-kustannus + nopeus).
  */
 
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
@@ -19,12 +17,12 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-const FINAVIA_URL = "https://apigw.finavia.fi/flights/public/v0/flights/arr/HEL";
-const WINDOW_MS = 2 * 60 * 60 * 1000; // 2h ikkuna
+const SOURCE_URL = "https://www.finavia.fi/fi/lentoasemat/helsinki-vantaa/lennot?tab=arr";
+const WINDOW_MS = 2 * 60 * 60 * 1000;
 const HELSINKI_TIMEZONE = "Europe/Helsinki";
+const CACHE_TTL_MS = 60 * 1000;
 
 let cache: { data: unknown; expires: number } | null = null;
-const CACHE_TTL_MS = 15 * 1000;
 
 interface FlightOut {
   id: string;
@@ -43,94 +41,184 @@ interface FlightOut {
   demandLevel: "red" | "amber" | "green";
 }
 
-const LONG_HAUL_CODES = new Set([
-  "JFK", "LAX", "ORD", "MIA", "DFW", "ATL", "BOS", "EWR", "SFO", "YYZ", "YUL",
-  "NRT", "HND", "ICN", "PEK", "PVG", "HKG", "BKK", "SIN", "DEL", "BOM",
-  "DXB", "DOH", "AUH", "RUH", "TLV",
-  "JNB", "CAI", "ADD",
-  "GRU", "EZE", "BOG",
-  "SYD", "MEL", "AKL",
+const LONG_HAUL_CITIES = new Set([
+  "new york", "newark", "los angeles", "chicago", "miami", "dallas", "atlanta", "boston",
+  "san francisco", "toronto", "montreal",
+  "tokyo", "tokio", "osaka", "seoul", "soul", "beijing", "peking", "shanghai", "hong kong",
+  "bangkok", "singapore", "delhi", "mumbai",
+  "dubai", "doha", "abu dhabi", "riyadh", "tel aviv",
+  "johannesburg", "cairo", "addis ababa",
+  "são paulo", "sao paulo", "buenos aires", "bogotá", "bogota",
+  "sydney", "melbourne", "auckland",
 ]);
 
 const MAJOR_EU_HUBS = new Set([
-  "LHR", "CDG", "FRA", "AMS", "MAD", "FCO", "MUC", "ZRH", "VIE", "CPH",
-  "ARN", "OSL", "BRU", "DUB", "WAW", "IST",
+  "london", "lontoo", "paris", "pariisi", "frankfurt", "amsterdam", "madrid", "rome", "rooma",
+  "munich", "münchen", "zurich", "zürich", "vienna", "wien", "copenhagen", "kööpenhamina",
+  "stockholm", "tukholma", "oslo", "brussels", "bryssel", "dublin", "warsaw", "varsova", "istanbul",
 ]);
 
 function classifyDemand(
-  origin: string,
+  originLower: string,
   delayMin: number,
-  hour: number
+  hour: number,
 ): { tag: string; level: "red" | "amber" | "green" } {
-  if (LONG_HAUL_CODES.has(origin)) return { tag: "KAUKOLENTO", level: "red" };
+  const isLong = [...LONG_HAUL_CITIES].some((c) => originLower.includes(c));
+  if (isLong) return { tag: "KAUKOLENTO", level: "red" };
   if (delayMin >= 30) return { tag: "VIIVE +30min", level: "red" };
-  if (MAJOR_EU_HUBS.has(origin) && (hour >= 16 || hour <= 9)) {
-    return { tag: "RUSH HUB", level: "red" };
-  }
-  if (MAJOR_EU_HUBS.has(origin)) return { tag: "EU-HUB", level: "amber" };
+  const isHub = [...MAJOR_EU_HUBS].some((c) => originLower.includes(c));
+  if (isHub && (hour >= 16 || hour <= 9)) return { tag: "RUSH HUB", level: "red" };
+  if (isHub) return { tag: "EU-HUB", level: "amber" };
   if (delayMin >= 10) return { tag: `+${delayMin} min`, level: "amber" };
   return { tag: "AIKATAULUSSA", level: "green" };
 }
 
-function fmtTime(iso?: string): string {
-  if (!iso) return "—";
-  const d = new Date(iso);
-  if (isNaN(d.getTime())) return "—";
+function getHelsinkiHour(date: Date): number {
   const parts = new Intl.DateTimeFormat("en-GB", {
-    timeZone: HELSINKI_TIMEZONE,
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-  }).formatToParts(d);
-  const hour = parts.find((part) => part.type === "hour")?.value ?? "00";
-  const minute = parts.find((part) => part.type === "minute")?.value ?? "00";
-  return `${hour}:${minute}`;
+    timeZone: HELSINKI_TIMEZONE, hour: "2-digit", hour12: false,
+  }).formatToParts(date);
+  return Number(parts.find((p) => p.type === "hour")?.value ?? "0");
 }
 
-function getHelsinkiHour(iso?: string): number {
-  if (!iso) return 0;
-  const d = new Date(iso);
-  if (isNaN(d.getTime())) return 0;
+function fmtTime(date: Date): string {
   const parts = new Intl.DateTimeFormat("en-GB", {
-    timeZone: HELSINKI_TIMEZONE,
-    hour: "2-digit",
-    hour12: false,
-  }).formatToParts(d);
-  return Number(parts.find((part) => part.type === "hour")?.value ?? "0");
+    timeZone: HELSINKI_TIMEZONE, hour: "2-digit", minute: "2-digit", hour12: false,
+  }).formatToParts(date);
+  const h = parts.find((p) => p.type === "hour")?.value ?? "00";
+  const m = parts.find((p) => p.type === "minute")?.value ?? "00";
+  return `${h}:${m}`;
 }
 
-function diffMinutes(scheduled?: string, actual?: string): number {
-  if (!scheduled || !actual) return 0;
-  const s = new Date(scheduled).getTime();
-  const a = new Date(actual).getTime();
-  if (isNaN(s) || isNaN(a)) return 0;
-  return Math.round((a - s) / 60000);
-}
+/** Yhdistä HH:MM tämän päivän Helsinki-päivämäärään. Käsittelee yön ylityksen. */
+function parseHelsinkiTime(hhmm: string, now: Date): Date | null {
+  const m = hhmm.match(/^(\d{1,2})[:.](\d{2})$/);
+  if (!m) return null;
+  const hour = Number(m[1]);
+  const minute = Number(m[2]);
+  if (hour > 23 || minute > 59) return null;
 
-/**
- * Erittäin yksinkertainen XML -> tag-objekti -parseri Finavia <flight>-elementeille.
- * Finavian skeema on litteä: jokainen flight sisältää vain teksti-kenttiä.
- */
-function parseFlightsXml(xml: string): Record<string, string>[] {
-  const flights: Record<string, string>[] = [];
-  // Etsi kaikki <flight>...</flight> -lohkot
-  const flightRegex = /<flight\b[^>]*>([\s\S]*?)<\/flight>/gi;
-  let match: RegExpExecArray | null;
-  while ((match = flightRegex.exec(xml)) !== null) {
-    const inner = match[1];
-    const obj: Record<string, string> = {};
-    // Sisältä: <fieldname>value</fieldname>
-    const fieldRegex = /<([a-zA-Z0-9_]+)\b[^>]*>([\s\S]*?)<\/\1>/g;
-    let f: RegExpExecArray | null;
-    while ((f = fieldRegex.exec(inner)) !== null) {
-      const tag = f[1];
-      const raw = f[2].trim();
-      // Pura CDATA jos on
-      const cdata = raw.match(/^<!\[CDATA\[([\s\S]*?)\]\]>$/);
-      obj[tag] = cdata ? cdata[1].trim() : raw;
-    }
-    flights.push(obj);
+  // Hae nykyinen Helsinki-päivä
+  const fmt = new Intl.DateTimeFormat("en-CA", {
+    timeZone: HELSINKI_TIMEZONE, year: "numeric", month: "2-digit", day: "2-digit",
+  });
+  const today = fmt.format(now); // YYYY-MM-DD
+
+  const utcMs = Date.UTC(
+    Number(today.slice(0, 4)), Number(today.slice(5, 7)) - 1, Number(today.slice(8, 10)),
+    hour, minute, 0,
+  );
+  // Helsingin offset (kesä +3, talvi +2)
+  const probe = new Date(utcMs);
+  const offsetParts = new Intl.DateTimeFormat("en-US", {
+    timeZone: HELSINKI_TIMEZONE, timeZoneName: "shortOffset",
+  }).formatToParts(probe);
+  const tzName = offsetParts.find((p) => p.type === "timeZoneName")?.value ?? "GMT+2";
+  const offsetMatch = tzName.match(/GMT([+-])(\d+)/);
+  const offsetHours = offsetMatch ? (offsetMatch[1] === "+" ? 1 : -1) * Number(offsetMatch[2]) : 2;
+  let result = new Date(utcMs - offsetHours * 60 * 60 * 1000);
+
+  // Jos aika on yli 6h menneisyydessä, oletetaan että se on huomenna
+  if (result.getTime() < now.getTime() - 6 * 60 * 60 * 1000) {
+    result = new Date(result.getTime() + 24 * 60 * 60 * 1000);
   }
+  return result;
+}
+
+/** Parsi markdown-taulukko lentolistaksi. Yritetään tukea useita formaatteja. */
+interface RawFlight {
+  flightNumber: string;
+  origin: string;
+  scheduled: string; // HH:MM
+  estimated?: string;
+  status?: string;
+  gate?: string;
+  terminal?: string;
+  belt?: string;
+}
+
+function parseMarkdownFlights(md: string): RawFlight[] {
+  // Finavian saapuvien sivulla jokainen lento on monirivinen lohko, esim:
+  //   14:40
+  //   Vaasa
+  //   AY314, JL6874, AS7694
+  //   Laskeutunut 14:51   tai   Arvioitu aika 16:08   tai   Peruttu
+  //   Tiedot
+  //
+  // Käytetään "Tiedot"-riviä lohkojen erottimena ja kelataan taaksepäin.
+
+  const lines = md.split("\n").map((l) => l.trim());
+  const flights: RawFlight[] = [];
+
+  for (let i = 0; i < lines.length; i++) {
+    if (lines[i] !== "Tiedot") continue;
+
+    // Kerää enintään 6 edellistä ei-tyhjää riviä
+    const block: string[] = [];
+    for (let j = i - 1; j >= 0 && block.length < 6; j--) {
+      if (!lines[j]) continue;
+      // Pysähdy heti kun törmätään toiseen "Tiedot" tai otsikkoon
+      if (lines[j] === "Tiedot") break;
+      if (lines[j].startsWith("#") || lines[j].startsWith("|")) break;
+      block.unshift(lines[j]);
+    }
+    if (block.length < 3) continue;
+
+    // 1. rivi: scheduled HH:MM
+    const schedMatch = block[0].match(/^(\d{1,2}):(\d{2})$/);
+    if (!schedMatch) continue;
+    const scheduled = `${schedMatch[1].padStart(2, "0")}:${schedMatch[2]}`;
+
+    // Etsi loput: origin = ensimmäinen rivi joka EI ole aika, EI lentonumero, EI status
+    // Lentonumero-rivi: alkaa 2-3 isolla kirjaimella + numeroilla
+    const flightLineRe = /^[A-Z]{1,3}\d+[A-Z]?(?:\s*,\s*[A-Z]{1,3}\d+[A-Z]?)*$/;
+    const isStatus = (s: string) =>
+      /laskeutu|peru|arvioitu|viivä|odotett|saapunut|lähtenyt|portt|kutsu|saapumas|saapuu/i.test(s);
+
+    let origin = "";
+    let flightNumbersLine = "";
+    let statusLine = "";
+
+    for (let k = 1; k < block.length; k++) {
+      const row = block[k];
+      if (/^\d{1,2}:\d{2}$/.test(row)) continue;
+      if (flightLineRe.test(row)) { flightNumbersLine = row; continue; }
+      if (isStatus(row)) { statusLine = row; continue; }
+      if (!origin && /[a-zA-ZäöåÄÖÅ]{3,}/.test(row) && row.length < 60) {
+        origin = row;
+      }
+    }
+    if (!origin || !flightNumbersLine) continue;
+
+    const flightNumber = flightNumbersLine.split(",")[0].trim();
+
+    // Tulkitse status ja arvioitu aika
+    let status = "Aikataulussa";
+    let estimated: string | undefined;
+    if (statusLine) {
+      const lower = statusLine.toLowerCase();
+      const timeMatch = statusLine.match(/(\d{1,2}):(\d{2})/);
+      if (lower.includes("laskeutu")) {
+        status = "Laskeutunut";
+        if (timeMatch) estimated = `${timeMatch[1].padStart(2, "0")}:${timeMatch[2]}`;
+      } else if (lower.includes("peru")) {
+        status = "Peruttu";
+      } else if (lower.includes("arvioitu") || lower.includes("viivä")) {
+        status = "Arvioitu";
+        if (timeMatch) estimated = `${timeMatch[1].padStart(2, "0")}:${timeMatch[2]}`;
+      } else {
+        status = statusLine;
+      }
+    }
+
+    flights.push({
+      flightNumber,
+      origin,
+      scheduled,
+      estimated: estimated ?? scheduled,
+      status,
+    });
+  }
+
   return flights;
 }
 
@@ -140,11 +228,17 @@ Deno.serve(async (req) => {
   }
 
   try {
-    const apiKey = Deno.env.get("FINAVIA_API_KEY");
+    const apiKey = Deno.env.get("FIRECRAWL_API_KEY");
     if (!apiKey) {
       return new Response(
-        JSON.stringify({ error: "FINAVIA_API_KEY puuttuu" }),
-        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        JSON.stringify({
+          flights: [],
+          count: 0,
+          source: "Firecrawl",
+          error: "FIRECRAWL_API_KEY puuttuu — yhdistä Firecrawl-konnektori",
+          timestamp: new Date().toISOString(),
+        }),
+        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
       );
     }
 
@@ -154,92 +248,88 @@ Deno.serve(async (req) => {
       });
     }
 
-    const r = await fetch(FINAVIA_URL, {
+    const r = await fetch("https://api.firecrawl.dev/v2/scrape", {
+      method: "POST",
       headers: {
-        app_key: apiKey,
-        "Cache-Control": "no-cache",
-        Accept: "application/xml",
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
       },
-      signal: AbortSignal.timeout(10000),
+      body: JSON.stringify({
+        url: SOURCE_URL,
+        formats: ["markdown"],
+        onlyMainContent: true,
+        waitFor: 2000,
+      }),
+      signal: AbortSignal.timeout(30000),
     });
 
     if (!r.ok) {
       const body = await r.text();
-      console.error(`Finavia ${r.status}:`, body.slice(0, 300));
+      console.error(`Firecrawl ${r.status}:`, body.slice(0, 300));
       return new Response(
         JSON.stringify({
           flights: [],
           count: 0,
-          source: "Finavia API",
-          error: `Finavia palautti ${r.status}`,
+          source: "Firecrawl",
+          error: `Firecrawl palautti ${r.status}`,
           timestamp: new Date().toISOString(),
         }),
-        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
       );
     }
 
-    const xml = await r.text();
-    const list = parseFlightsXml(xml);
-    console.log(`Finavia: parseroitu ${list.length} lentoa`);
-
-    if (list.length > 0) {
-      console.log("Esimerkkilento (raakakentat):", JSON.stringify(list[0]));
+    const json = await r.json();
+    const md: string = json?.data?.markdown ?? json?.markdown ?? "";
+    if (!md) {
+      console.error("Firecrawl: tyhjä markdown");
+      return new Response(
+        JSON.stringify({
+          flights: [], count: 0, source: "Firecrawl",
+          error: "Tyhjä vastaus Finavian sivulta",
+          timestamp: new Date().toISOString(),
+        }),
+        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
     }
 
-    const now = Date.now();
-    const cutoff = now + WINDOW_MS;
+    const raw = parseMarkdownFlights(md);
+    console.log(`Parseroitu ${raw.length} lentoa markdownista`);
+
+    const now = new Date();
+    const cutoff = now.getTime() + WINDOW_MS;
     const flights: FlightOut[] = [];
 
-    for (const f of list) {
-      // Finavia public/v0 -skeemassa kentat:
-      //   sdt   = scheduled date/time (aikataulu)
-      //   pest_d / est_d = predicted/estimated saapumisaika
-      //   act_d = todellinen saapuminen
-      //   prm   = statuskoodi (LAN, EXP, SCH, DEP, CXX...)
-      //   prt   = statusteksti englanniksi ("Landed", "Expected", "Scheduled")
-      //   route_1, route_n_fi_1 = origin (IATA + nimi)
-      //   bltarea = matkatavarahihna
-      const sched = f.sdt;
-      const estimated = f.pest_d || f.est_d || f.act_d || sched;
-      if (!sched) continue;
+    for (const f of raw) {
+      const schedDate = parseHelsinkiTime(f.scheduled, now);
+      const estDate = f.estimated ? parseHelsinkiTime(f.estimated, now) : schedDate;
+      if (!schedDate || !estDate) continue;
 
-      const arrivalMs = new Date(estimated).getTime();
-      if (isNaN(arrivalMs)) continue;
-      // Vain seuraavat 2h, sallitaan -15min jo myöhässä olevat
-      if (arrivalMs < now - 15 * 60 * 1000 || arrivalMs > cutoff) continue;
+      const arrivalMs = estDate.getTime();
+      if (arrivalMs < now.getTime() - 15 * 60 * 1000 || arrivalMs > cutoff) continue;
+      if (f.status === "Laskeutunut" || f.status === "Peruttu") continue;
 
-      // Ohita peruutetut ja jo laskeutuneet
-      const status = (f.prm || "").toUpperCase();
-      const statusFi = (f.prt_f || "").toLowerCase();
-      if (status === "CXX" || status === "X" || status === "LAN") continue;
-      if (statusFi.includes("peruttu") || statusFi.includes("laskeutunut")) continue;
-
-      const delay = diffMinutes(sched, estimated);
-      const hour = getHelsinkiHour(estimated);
-      const originCode = f.route_1 || f.route1 || "";
-      const originName = f.route_n_fi_1 || f.route_n_1 || originCode || "Tuntematon";
-
-      const { tag, level } = classifyDemand(originCode, delay, hour);
+      const delay = Math.round((estDate.getTime() - schedDate.getTime()) / 60000);
+      const hour = getHelsinkiHour(estDate);
+      const originLower = f.origin.toLowerCase();
+      const { tag, level } = classifyDemand(originLower, delay, hour);
 
       flights.push({
-        id: `${f.fltnr || "fl"}-${sched}`,
-        flightNumber: f.fltnr || "—",
-        airline: f.airline_long || f.airline || "—",
-        origin: originName,
-        originCode,
-        scheduledTime: fmtTime(sched),
-        estimatedTime: fmtTime(estimated),
+        id: `${f.flightNumber}-${f.scheduled}`,
+        flightNumber: f.flightNumber,
+        airline: f.flightNumber.slice(0, 2), // IATA-koodi prefiksinä
+        origin: f.origin,
+        originCode: "",
+        scheduledTime: fmtTime(schedDate),
+        estimatedTime: fmtTime(estDate),
         delayMinutes: delay,
-        terminal: f.termid || f.terminal,
+        terminal: f.terminal,
         gate: f.gate,
-        belt: f.bltarea || f.belt,
-        status: f.prt_f || f.prt || "",
+        belt: f.belt,
+        status: f.status ?? "",
         demandTag: tag,
         demandLevel: level,
       });
     }
-
-    console.log(`Finavia: 2h ikkunassa ${flights.length}/${list.length} lentoa`);
 
     flights.sort((a, b) => {
       if (a.demandLevel === "red" && b.demandLevel !== "red") return -1;
@@ -247,11 +337,10 @@ Deno.serve(async (req) => {
       return a.estimatedTime.localeCompare(b.estimatedTime);
     });
 
-
     const payload = {
       flights,
       count: flights.length,
-      source: "Finavia API",
+      source: "Finavia (scrape)",
       timestamp: new Date().toISOString(),
     };
 
@@ -263,8 +352,11 @@ Deno.serve(async (req) => {
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     console.error("fetch-flights virhe:", msg);
-    return new Response(JSON.stringify({ error: msg }), {
-      status: 500,
+    return new Response(JSON.stringify({
+      flights: [], count: 0, source: "Firecrawl", error: msg,
+      timestamp: new Date().toISOString(),
+    }), {
+      status: 200,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   }
