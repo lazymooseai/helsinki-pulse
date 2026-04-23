@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { CloudRain, Snowflake, Sun, Wind, Droplets, ExternalLink } from "lucide-react";
 import { useDashboard } from "@/context/DashboardContext";
 import ControlRoomDrawer from "@/components/ControlRoomDrawer";
+import { openExternal } from "@/lib/openExternal";
 
 const WEATHER_DEEP_LINK = "https://www.ilmatieteenlaitos.fi/sadealueet-suomessa";
 
@@ -41,7 +42,7 @@ const DashboardHeader = () => {
           <ControlRoomDrawer />
           <div
             className="flex items-center gap-2 rounded-lg bg-card px-3 py-2 cursor-pointer active:scale-[0.97] transition-all"
-            onClick={() => window.open(WEATHER_DEEP_LINK, "_blank", "noopener,noreferrer")}
+            onClick={() => openExternal(WEATHER_DEEP_LINK)}
           >
             <WeatherIcon className={`h-7 w-7 ${weather.condition === "Clear" ? "text-primary" : "text-accent"}`} />
             <div className="text-right">
@@ -69,7 +70,7 @@ const DashboardHeader = () => {
       {weather.rainModeActive && (
         <div
           className="flex items-center gap-2 rounded-lg bg-accent/15 border border-accent/30 px-3 py-2 cursor-pointer active:scale-[0.97] transition-all"
-          onClick={() => window.open(WEATHER_DEEP_LINK, "_blank", "noopener,noreferrer")}
+          onClick={() => openExternal(WEATHER_DEEP_LINK)}
         >
           <CloudRain className="h-5 w-5 text-accent animate-flash-icon" />
           <span className="text-sm font-black uppercase tracking-widest text-accent text-glow-amber flex-1">
