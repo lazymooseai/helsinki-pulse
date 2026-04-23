@@ -122,7 +122,7 @@ const CommandCenter = () => {
   const deepLink = getAlertDeepLink(topAlert) ?? getZoneDeepLink(zone);
 
   const handleClick = () => {
-    if (deepLink) window.open(deepLink, "_blank", "noopener,noreferrer");
+    if (deepLink) openExternal(deepLink);
   };
 
   return (
