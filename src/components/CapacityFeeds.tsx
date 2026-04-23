@@ -812,25 +812,47 @@ const CapacityFeeds = () => {
           <div className="flex items-center justify-between mb-3">
             <h2 className="text-lg font-black uppercase tracking-widest text-muted-foreground flex items-center gap-2">
               <Ticket className="h-5 w-5 text-accent" />
-              Tapahtumat Tänään {sortedEvents.length > 0 && <span className="text-accent">({sortedEvents.length})</span>}
+              Tapahtumat Tänään {visibleEvents.length > 0 && <span className="text-accent">({visibleEvents.length})</span>}
             </h2>
-            <button
-              onClick={() => setShowAddForm(true)}
-              className="h-10 px-3 rounded-lg bg-primary/15 border border-primary/40 flex items-center gap-1.5 text-primary text-xs font-black uppercase tracking-wider active:scale-95 transition-transform"
-            >
-              <Plus className="h-4 w-4" /> Lisää
-            </button>
+            <div className="flex gap-2">
+              {(smallEvents.length > 0 || smallUpcoming.length > 0) && (
+                <button
+                  onClick={() => setShowSmallVenues(!showSmallVenues)}
+                  className={`h-10 px-3 rounded-lg border flex items-center gap-1.5 text-xs font-black uppercase tracking-wider active:scale-95 transition-transform ${
+                    showSmallVenues
+                      ? "bg-accent/15 border-accent/40 text-accent"
+                      : "bg-muted border-border text-muted-foreground"
+                  }`}
+                  title="Näytä myös pienet paikat (baarit, kahvilat, klubit <300 hlö)"
+                >
+                  <Filter className="h-4 w-4" />
+                  {showSmallVenues ? "Kaikki" : `+${smallEvents.length + smallUpcoming.length} pientä`}
+                </button>
+              )}
+              <button
+                onClick={() => setShowAddForm(true)}
+                className="h-10 px-3 rounded-lg bg-primary/15 border border-primary/40 flex items-center gap-1.5 text-primary text-xs font-black uppercase tracking-wider active:scale-95 transition-transform"
+              >
+                <Plus className="h-4 w-4" /> Lisää
+              </button>
+            </div>
           </div>
 
-          {sortedEvents.length === 0 && (
+          {visibleEvents.length === 0 && (
             <div className="rounded-xl bg-card border border-border p-5 text-center">
-              <p className="text-base font-bold text-muted-foreground">Ei aktiivisia tapahtumia juuri nyt.</p>
-              <p className="text-xs text-muted-foreground/60 mt-1">Tarkista tulevat tai lisää käsin.</p>
+              <p className="text-base font-bold text-muted-foreground">
+                {smallEvents.length > 0
+                  ? `Ei merkittäviä tapahtumia. ${smallEvents.length} pientä paikkaa piilossa.`
+                  : "Ei aktiivisia tapahtumia juuri nyt."}
+              </p>
+              <p className="text-xs text-muted-foreground/60 mt-1">
+                {smallEvents.length > 0 ? "Avaa suodatus \"+N pientä\" -napista." : "Tarkista tulevat tai lisää käsin."}
+              </p>
             </div>
           )}
 
           <div className="flex flex-col gap-2">
-            {sortedEvents.map((event) => (
+            {visibleEvents.map((event) => (
               <EventCard
                 key={event.id}
                 event={event}
@@ -844,7 +866,7 @@ const CapacityFeeds = () => {
           </div>
 
           {/* Tulevat (N) - laajennettava */}
-          {upcomingEvents.length > 0 && (
+          {visibleUpcoming.length > 0 && (
             <div className="mt-3">
               <button
                 onClick={() => setShowUpcoming(!showUpcoming)}
@@ -852,14 +874,14 @@ const CapacityFeeds = () => {
               >
                 <span className="text-base font-black uppercase tracking-wider text-foreground flex items-center gap-2">
                   <Ticket className="h-5 w-5 text-muted-foreground" />
-                  Tulevat ({upcomingEvents.length}) — 7 pv
+                  Tulevat ({visibleUpcoming.length}) — 7 pv
                 </span>
                 {showUpcoming ? <ChevronUp className="h-5 w-5 text-muted-foreground" /> : <ChevronDown className="h-5 w-5 text-muted-foreground" />}
               </button>
 
               {showUpcoming && (
                 <div className="mt-2 flex flex-col gap-2">
-                  {upcomingEvents.map((event) => (
+                  {visibleUpcoming.map((event) => (
                     <UpcomingEventCard
                       key={event.id}
                       event={event}
