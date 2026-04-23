@@ -698,11 +698,10 @@ const AddEventModal = ({ onClose, onSaved }: { onClose: () => void; onSaved: () 
 };
 
 const CapacityFeeds = () => {
-  const { state, upcomingEvents, crowdOverrides, setCrowdOverride, dispatchEdits, setDispatchEdit, lastFetch, trainStation, setTrainStation, refreshAll } = useDashboard();
+  const { state, lastFetch, trainStation, setTrainStation, refreshAll } = useDashboard();
   const [editingEventId, setEditingEventId] = useState<string | null>(null);
-  const [showUpcoming, setShowUpcoming] = useState(false);
   const [showAddForm, setShowAddForm] = useState(false);
-  const [showSmallVenues, setShowSmallVenues] = useState(false);
+  const [selectedTimelineItem, setSelectedTimelineItem] = useState<TimelineItem | null>(null);
 
   const editingEvent = editingEventId ? state.events.find((e) => e.id === editingEventId) : null;
 
@@ -741,28 +740,6 @@ const CapacityFeeds = () => {
     deepLink: getDeepLinkForFeed("train"),
     isLive: isDataLive,
   }));
-
-  // Events: live if fetched from API (id doesn't start with "fallback")
-  const isEventLive = (event: EventInfo) => !event.id.startsWith("fallback") && isDataLive;
-
-  const sortedEvents = [...state.events].sort((a, b) => {
-    const oa = crowdOverrides[a.id];
-    const ob = crowdOverrides[b.id];
-    if (oa === "rush" && ob !== "rush") return -1;
-    if (ob === "rush" && oa !== "rush") return 1;
-    if (oa === "quiet" && ob !== "quiet") return 1;
-    if (ob === "quiet" && oa !== "quiet") return -1;
-    return (a.startTime || "").localeCompare(b.startTime || "");
-  });
-
-  // Suodatus: oletuksena vain merkittävät tapahtumat
-  const significantEvents = sortedEvents.filter(isSignificantEvent);
-  const smallEvents = sortedEvents.filter((e) => !isSignificantEvent(e));
-  const visibleEvents = showSmallVenues ? sortedEvents : significantEvents;
-
-  const significantUpcoming = upcomingEvents.filter(isSignificantEvent);
-  const smallUpcoming = upcomingEvents.filter((e) => !isSignificantEvent(e));
-  const visibleUpcoming = showSmallVenues ? upcomingEvents : significantUpcoming;
 
   return (
     <>
