@@ -6,6 +6,7 @@
  */
 import * as XLSX from "xlsx";
 import { supabase } from "@/integrations/supabase/client";
+import { resolveAreaName } from "./areas";
 
 export interface TaxiTripRow {
   trip_id: string;
@@ -35,6 +36,16 @@ export interface TaxiTripStored extends TaxiTripRow {
   created_at: string;
 }
 
+/** Palauttaa nimetyn alueen lähtökoordinaatista (esim. "Kamppi", "Pasilan asema"). */
+export function tripStartArea(t: Pick<TaxiTripStored, "start_address" | "start_lat" | "start_lon">): string {
+  return resolveAreaName(t.start_address, t.start_lat, t.start_lon);
+}
+
+/** Palauttaa nimetyn alueen kohdekoordinaatista. */
+export function tripEndArea(t: Pick<TaxiTripStored, "end_address" | "end_lat" | "end_lon">): string {
+  return resolveAreaName(t.end_address, t.end_lat, t.end_lon);
+}
+
 export interface TripFilters {
   search?: string;          // tekstihaku osoitteesta
   hourMin?: number;
@@ -43,6 +54,7 @@ export interface TripFilters {
   fareMin?: number;
   fareMax?: number;
   limit?: number;
+  offset?: number;
 }
 
 export interface TripStats {
@@ -222,12 +234,14 @@ export async function insertSingleTrip(row: TaxiTripRow): Promise<{ ok: boolean;
 
 /* ── Haku ──────────────────────────────────────────────────────── */
 
-export async function queryTrips(filters: TripFilters): Promise<TaxiTripStored[]> {
+export async function queryTrips(filters: TripFilters): Promise<{ rows: TaxiTripStored[]; total: number }> {
+  const limit = filters.limit ?? 100;
+  const offset = filters.offset ?? 0;
   let q = supabase
     .from("taxi_trips")
-    .select("*")
+    .select("*", { count: "exact" })
     .order("start_time", { ascending: false })
-    .limit(filters.limit ?? 500);
+    .range(offset, offset + limit - 1);
 
   if (filters.search && filters.search.trim()) {
     const s = filters.search.trim();
@@ -241,12 +255,12 @@ export async function queryTrips(filters: TripFilters): Promise<TaxiTripStored[]
   if (typeof filters.fareMin === "number") q = q.gte("fare_eur", filters.fareMin);
   if (typeof filters.fareMax === "number") q = q.lte("fare_eur", filters.fareMax);
 
-  const { data, error } = await q;
+  const { data, error, count } = await q;
   if (error) {
     console.error("queryTrips error", error);
-    return [];
+    return { rows: [], total: 0 };
   }
-  return (data ?? []) as TaxiTripStored[];
+  return { rows: (data ?? []) as TaxiTripStored[], total: count ?? 0 };
 }
 
 export function computeStats(trips: TaxiTripStored[]): TripStats {
@@ -258,7 +272,7 @@ export function computeStats(trips: TaxiTripStored[]): TripStats {
   for (const t of trips) {
     if (typeof t.fare_eur === "number") { fareSum += t.fare_eur; fareN++; }
     if (typeof t.distance_km === "number") { distSum += t.distance_km; distN++; }
-    const a = (t.start_address ?? "").trim();
+    const a = tripStartArea(t);
     if (a) areaCounts.set(a, (areaCounts.get(a) ?? 0) + 1);
   }
   let topArea: string | null = null;
@@ -327,53 +341,77 @@ export async function getTodayStats(): Promise<TodayStats> {
   };
 }
 
-export interface PatternRow {
-  hour_of_day: number;
-  day_of_week: number;
-  start_area: string;
-  trip_count: number;
-  avg_fare: number;
-  avg_distance: number;
+export interface AreaPrediction {
+  area: string;
+  trips: number;
+  avgFare: number;
 }
 
 /**
- * Hakee tämän hetken (tunti × viikonpäivä) historialliset patternit.
- * Palauttaa kokonaismäärän + parhaan lähtöalueen.
+ * Hakee historialliset kyydit annetuille tunneille tiettynä viikonpäivänä,
+ * ryhmittelee lähtöalueen mukaan ja palauttaa top-N alueet.
+ *
+ * Lasketaan client-puolella koska osoitteet ovat raakakoordinaatteja —
+ * alueisiin ryhmittely tapahtuu nimettyjen Helsingin alueiden mukaan.
+ */
+export async function getTopAreasForWindow(opts: {
+  hours: number[];          // esim. [14, 15] = klo 14–16 historia
+  daysOfWeek?: number[];    // ISO ma=1...su=7; default = nykyinen viikonpäivä
+  topN?: number;
+}): Promise<{ totalTrips: number; areas: AreaPrediction[] }> {
+  const dows = opts.daysOfWeek ?? [(new Date().getDay() + 6) % 7 + 1];
+  const topN = opts.topN ?? 5;
+
+  const { data, error } = await supabase
+    .from("taxi_trips")
+    .select("start_address,start_lat,start_lon,fare_eur,hour_of_day,day_of_week")
+    .in("hour_of_day", opts.hours)
+    .in("day_of_week", dows)
+    .limit(5000);
+
+  if (error || !data) {
+    console.error("getTopAreasForWindow error", error);
+    return { totalTrips: 0, areas: [] };
+  }
+
+  const counts = new Map<string, { count: number; fareSum: number; fareN: number }>();
+  for (const t of data) {
+    const area = resolveAreaName(t.start_address, t.start_lat, t.start_lon);
+    if (!area || area === "—") continue;
+    const cur = counts.get(area) ?? { count: 0, fareSum: 0, fareN: 0 };
+    cur.count += 1;
+    if (typeof t.fare_eur === "number") { cur.fareSum += t.fare_eur; cur.fareN += 1; }
+    counts.set(area, cur);
+  }
+
+  const areas: AreaPrediction[] = Array.from(counts.entries())
+    .map(([area, v]) => ({
+      area,
+      trips: v.count,
+      avgFare: v.fareN > 0 ? v.fareSum / v.fareN : 0,
+    }))
+    .sort((a, b) => b.trips - a.trips)
+    .slice(0, topN);
+
+  return { totalTrips: data.length, areas };
+}
+
+/**
+ * Yhteensopivuus-wrapper: nykyisen tunnin paras lähtöalue.
  */
 export async function getCurrentHourPattern(): Promise<{
   totalTrips: number;
   bestArea: string | null;
   bestAreaCount: number;
 }> {
-  const now = new Date();
-  // Käytä Helsingin aikaa (näkymä on jo Helsinki-aikavyöhykkeellä)
-  const hour = now.getHours();
-  const isoDow = ((now.getDay() + 6) % 7) + 1; // ma=1 ... su=7
-
-  // trip_patterns ei ole types.ts:ssä → käytetään raw RPC -tyylillä `from` minkä TS ei tunne.
-  // Käytetään suoraa fetchia REST-rajapintaan, jotta saadaan näkymästä tiedot.
-  const url = `${import.meta.env.VITE_SUPABASE_URL}/rest/v1/trip_patterns?hour_of_day=eq.${hour}&day_of_week=eq.${isoDow}&select=start_area,trip_count`;
-  try {
-    const res = await fetch(url, {
-      headers: {
-        apikey: import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
-        Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}`,
-      },
-    });
-    if (!res.ok) return { totalTrips: 0, bestArea: null, bestAreaCount: 0 };
-    const rows = (await res.json()) as Array<{ start_area: string; trip_count: number }>;
-    let total = 0;
-    let best: string | null = null;
-    let bestC = 0;
-    for (const r of rows) {
-      total += r.trip_count;
-      if (r.trip_count > bestC) { bestC = r.trip_count; best = r.start_area; }
-    }
-    return { totalTrips: total, bestArea: best, bestAreaCount: bestC };
-  } catch (e) {
-    console.error("getCurrentHourPattern error", e);
-    return { totalTrips: 0, bestArea: null, bestAreaCount: 0 };
-  }
+  const hour = new Date().getHours();
+  const { totalTrips, areas } = await getTopAreasForWindow({ hours: [hour], topN: 1 });
+  const best = areas[0];
+  return {
+    totalTrips,
+    bestArea: best?.area ?? null,
+    bestAreaCount: best?.trips ?? 0,
+  };
 }
 
 export const DAY_LABELS_FI = ["Ma", "Ti", "Ke", "To", "Pe", "La", "Su"];

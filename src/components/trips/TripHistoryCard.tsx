@@ -1,22 +1,33 @@
 import { useEffect, useState } from "react";
-import { BarChart3, MapPin, Clock } from "lucide-react";
+import { BarChart3, MapPin, Clock, TrendingUp } from "lucide-react";
 import { Card } from "@/components/ui/card";
-import { getTodayStats, getCurrentHourPattern, type TodayStats } from "@/lib/trips";
+import { getTodayStats, getTopAreasForWindow, type TodayStats, type AreaPrediction } from "@/lib/trips";
 
 const TripHistoryCard = () => {
   const [today, setToday] = useState<TodayStats>({ count: 0, avgFare: 0, totalRevenue: 0 });
-  const [pattern, setPattern] = useState<{ totalTrips: number; bestArea: string | null; bestAreaCount: number }>({
-    totalTrips: 0, bestArea: null, bestAreaCount: 0,
+  const [nowPattern, setNowPattern] = useState<{ totalTrips: number; areas: AreaPrediction[] }>({
+    totalTrips: 0, areas: [],
+  });
+  const [nextPattern, setNextPattern] = useState<{ totalTrips: number; areas: AreaPrediction[] }>({
+    totalTrips: 0, areas: [],
   });
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     let cancelled = false;
     const load = async () => {
-      const [t, p] = await Promise.all([getTodayStats(), getCurrentHourPattern()]);
+      const now = new Date();
+      const hour = now.getHours();
+      const nextHour = (hour + 1) % 24;
+      const [t, p, p2] = await Promise.all([
+        getTodayStats(),
+        getTopAreasForWindow({ hours: [hour], topN: 3 }),
+        getTopAreasForWindow({ hours: [nextHour, (nextHour + 1) % 24], topN: 3 }),
+      ]);
       if (!cancelled) {
         setToday(t);
-        setPattern(p);
+        setNowPattern(p);
+        setNextPattern(p2);
         setLoading(false);
       }
     };
@@ -25,7 +36,9 @@ const TripHistoryCard = () => {
     return () => { cancelled = true; window.clearInterval(id); };
   }, []);
 
-  const hourLabel = `${new Date().getHours().toString().padStart(2, "0")}:00`;
+  const hour = new Date().getHours();
+  const hourLabel = `${hour.toString().padStart(2, "0")}:00`;
+  const nextLabel = `${((hour + 1) % 24).toString().padStart(2, "0")}–${((hour + 3) % 24).toString().padStart(2, "0")}`;
 
   return (
     <div className="px-4 py-3">
@@ -47,24 +60,63 @@ const TripHistoryCard = () => {
             <p className="text-xs text-muted-foreground uppercase flex items-center gap-1">
               <Clock className="w-3 h-3" /> Klo {hourLabel} hist.
             </p>
-            <p className="text-3xl font-black text-foreground">{pattern.totalTrips}</p>
+            <p className="text-3xl font-black text-foreground">{nowPattern.totalTrips}</p>
             <p className="text-xs text-muted-foreground">kyytiä tyypillisesti</p>
           </div>
         </div>
 
         <div className="rounded-md border border-border p-3">
-          <p className="text-xs text-muted-foreground uppercase flex items-center gap-1">
-            <MapPin className="w-3 h-3" /> Paras lähtöalue tähän aikaan
+          <p className="text-xs text-muted-foreground uppercase flex items-center gap-1 mb-2">
+            <MapPin className="w-3 h-3" /> Top alueet — klo {hourLabel} (sama viikonpäivä)
           </p>
           {loading ? (
-            <p className="text-sm text-muted-foreground mt-1">Ladataan...</p>
-          ) : pattern.bestArea ? (
-            <>
-              <p className="text-xl font-black text-primary mt-1 truncate">{pattern.bestArea}</p>
-              <p className="text-xs text-muted-foreground">{pattern.bestAreaCount} kyytiä historiassa</p>
-            </>
+            <p className="text-sm text-muted-foreground">Ladataan...</p>
+          ) : nowPattern.areas.length === 0 ? (
+            <p className="text-sm text-muted-foreground">Ei dataa tälle ajalle</p>
           ) : (
-            <p className="text-sm text-muted-foreground mt-1">Ei dataa tälle ajalle</p>
+            <ol className="space-y-1.5">
+              {nowPattern.areas.map((a, i) => (
+                <li key={a.area} className="flex items-center justify-between gap-2">
+                  <span className="flex items-center gap-2 min-w-0">
+                    <span className={`w-5 h-5 rounded-full text-xs font-black flex items-center justify-center shrink-0 ${
+                      i === 0 ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"
+                    }`}>{i + 1}</span>
+                    <span className={`truncate ${i === 0 ? "text-base font-black text-primary" : "text-sm font-bold text-foreground"}`}>
+                      {a.area}
+                    </span>
+                  </span>
+                  <span className="text-xs text-muted-foreground whitespace-nowrap">
+                    {a.trips}× · {a.avgFare.toFixed(0)}€
+                  </span>
+                </li>
+              ))}
+            </ol>
+          )}
+        </div>
+
+        <div className="rounded-md border border-border p-3">
+          <p className="text-xs text-muted-foreground uppercase flex items-center gap-1 mb-2">
+            <TrendingUp className="w-3 h-3" /> Ennuste — klo {nextLabel}
+          </p>
+          {loading ? (
+            <p className="text-sm text-muted-foreground">Ladataan...</p>
+          ) : nextPattern.areas.length === 0 ? (
+            <p className="text-sm text-muted-foreground">Ei dataa</p>
+          ) : (
+            <div className="flex gap-1.5 flex-wrap">
+              {nextPattern.areas.map((a, i) => (
+                <span
+                  key={a.area}
+                  className={`px-2 py-1 rounded text-xs font-bold border ${
+                    i === 0
+                      ? "bg-primary/10 text-primary border-primary"
+                      : "bg-card text-foreground border-border"
+                  }`}
+                >
+                  {a.area} <span className="opacity-70">({a.trips})</span>
+                </span>
+              ))}
+            </div>
           )}
         </div>
       </Card>

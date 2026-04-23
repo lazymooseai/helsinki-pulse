@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Search, Download, MapPin } from "lucide-react";
+import { Search, Download, MapPin, ChevronDown, ChevronUp } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -12,6 +12,8 @@ import {
   tripsToCsv,
   downloadCsv,
   DAY_LABELS_FI,
+  tripStartArea,
+  tripEndArea,
   type TaxiTripStored,
   type TripFilters,
 } from "@/lib/trips";
@@ -23,11 +25,36 @@ const TripsHistory = () => {
   const [fareMin, setFareMin] = useState("");
   const [fareMax, setFareMax] = useState("");
   const [trips, setTrips] = useState<TaxiTripStored[]>([]);
+  const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(false);
+  const [showList, setShowList] = useState(false);
+  const [pageSize] = useState(100);
+  const [offset, setOffset] = useState(0);
 
   const stats = useMemo(() => computeStats(trips), [trips]);
 
-  const runSearch = async () => {
+  const runSearch = async (resetPage = true) => {
+    setLoading(true);
+    const newOffset = resetPage ? 0 : offset;
+    const filters: TripFilters = {
+      search: search.trim() || undefined,
+      hourMin: hourRange[0],
+      hourMax: hourRange[1],
+      daysOfWeek: days.length > 0 ? days : undefined,
+      fareMin: fareMin ? parseFloat(fareMin) : undefined,
+      fareMax: fareMax ? parseFloat(fareMax) : undefined,
+      limit: pageSize,
+      offset: newOffset,
+    };
+    const { rows, total } = await queryTrips(filters);
+    setTrips(resetPage ? rows : [...trips, ...rows]);
+    setTotal(total);
+    if (resetPage) setOffset(rows.length);
+    else setOffset(newOffset + rows.length);
+    setLoading(false);
+  };
+
+  const loadMore = async () => {
     setLoading(true);
     const filters: TripFilters = {
       search: search.trim() || undefined,
@@ -36,10 +63,13 @@ const TripsHistory = () => {
       daysOfWeek: days.length > 0 ? days : undefined,
       fareMin: fareMin ? parseFloat(fareMin) : undefined,
       fareMax: fareMax ? parseFloat(fareMax) : undefined,
-      limit: 500,
+      limit: pageSize,
+      offset,
     };
-    const data = await queryTrips(filters);
-    setTrips(data);
+    const { rows, total } = await queryTrips(filters);
+    setTrips([...trips, ...rows]);
+    setTotal(total);
+    setOffset(offset + rows.length);
     setLoading(false);
   };
 
@@ -117,7 +147,7 @@ const TripsHistory = () => {
         </div>
 
         <div className="flex gap-2">
-          <Button onClick={runSearch} disabled={loading} className="flex-1">
+          <Button onClick={() => runSearch(true)} disabled={loading} className="flex-1">
             {loading ? "Haetaan..." : "Hae"}
           </Button>
           <Button onClick={onExport} variant="outline" disabled={trips.length === 0}>
@@ -130,16 +160,16 @@ const TripsHistory = () => {
       <Card className="p-5">
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-center">
           <div>
-            <p className="text-xs text-muted-foreground uppercase">Kyytejä</p>
+            <p className="text-xs text-muted-foreground uppercase">Yht. tietokannassa</p>
+            <p className="text-2xl font-black text-foreground">{total.toLocaleString("fi-FI")}</p>
+          </div>
+          <div>
+            <p className="text-xs text-muted-foreground uppercase">Ladattu</p>
             <p className="text-2xl font-black text-foreground">{stats.count}</p>
           </div>
           <div>
             <p className="text-xs text-muted-foreground uppercase">Avg €</p>
             <p className="text-2xl font-black text-foreground">{stats.avgFare.toFixed(2)}</p>
-          </div>
-          <div>
-            <p className="text-xs text-muted-foreground uppercase">Avg km</p>
-            <p className="text-2xl font-black text-foreground">{stats.avgDistance.toFixed(1)}</p>
           </div>
           <div className="min-w-0">
             <p className="text-xs text-muted-foreground uppercase">Top lähtö</p>
@@ -154,36 +184,65 @@ const TripsHistory = () => {
       </Card>
 
       <Card className="overflow-hidden">
-        {trips.length === 0 ? (
-          <div className="p-8 text-center text-muted-foreground">
-            <MapPin className="w-8 h-8 mx-auto mb-2 opacity-50" />
-            <p>Ei tuloksia hakuehdoilla</p>
-          </div>
-        ) : (
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Aika</TableHead>
-                <TableHead>Lähtö</TableHead>
-                <TableHead>Kohde</TableHead>
-                <TableHead className="text-right">€</TableHead>
-                <TableHead className="text-right">km</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {trips.map((t) => (
-                <TableRow key={t.id}>
-                  <TableCell className="text-xs whitespace-nowrap">
-                    {new Date(t.start_time).toLocaleString("fi-FI", { dateStyle: "short", timeStyle: "short" })}
-                  </TableCell>
-                  <TableCell className="text-xs max-w-[140px] truncate">{t.start_address ?? "—"}</TableCell>
-                  <TableCell className="text-xs max-w-[140px] truncate">{t.end_address ?? "—"}</TableCell>
-                  <TableCell className="text-xs text-right font-bold">{t.fare_eur?.toFixed(2) ?? "—"}</TableCell>
-                  <TableCell className="text-xs text-right">{t.distance_km?.toFixed(1) ?? "—"}</TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+        <button
+          type="button"
+          onClick={() => setShowList((v) => !v)}
+          className="w-full flex items-center justify-between p-4 text-left hover:bg-accent/10 transition-colors"
+          aria-expanded={showList}
+        >
+          <span className="font-bold text-sm">
+            {showList ? "Piilota lista" : `Näytä lista (${trips.length} / ${total.toLocaleString("fi-FI")})`}
+          </span>
+          {showList ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+        </button>
+
+        {showList && (
+          trips.length === 0 ? (
+            <div className="p-8 text-center text-muted-foreground border-t border-border">
+              <MapPin className="w-8 h-8 mx-auto mb-2 opacity-50" />
+              <p>Ei tuloksia hakuehdoilla</p>
+            </div>
+          ) : (
+            <div className="border-t border-border">
+              <div className="max-h-[60vh] overflow-y-auto">
+                <Table>
+                  <TableHeader className="sticky top-0 bg-card z-10">
+                    <TableRow>
+                      <TableHead>Aika</TableHead>
+                      <TableHead>Lähtö</TableHead>
+                      <TableHead>Kohde</TableHead>
+                      <TableHead className="text-right">€</TableHead>
+                      <TableHead className="text-right">km</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {trips.map((t) => (
+                      <TableRow key={t.id}>
+                        <TableCell className="text-xs whitespace-nowrap">
+                          {new Date(t.start_time).toLocaleString("fi-FI", { dateStyle: "short", timeStyle: "short" })}
+                        </TableCell>
+                        <TableCell className="text-xs max-w-[140px] truncate" title={t.start_address ?? ""}>
+                          {tripStartArea(t)}
+                        </TableCell>
+                        <TableCell className="text-xs max-w-[140px] truncate" title={t.end_address ?? ""}>
+                          {tripEndArea(t)}
+                        </TableCell>
+                        <TableCell className="text-xs text-right font-bold">{t.fare_eur?.toFixed(2) ?? "—"}</TableCell>
+                        <TableCell className="text-xs text-right">{t.distance_km?.toFixed(1) ?? "—"}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+              {trips.length < total && (
+                <div className="p-3 border-t border-border">
+                  <Button onClick={loadMore} disabled={loading} variant="outline" className="w-full">
+                    {loading ? "Ladataan..." : `Lataa lisää (${total - trips.length} jäljellä)`}
+                  </Button>
+                </div>
+              )}
+            </div>
+          )
         )}
       </Card>
     </div>
