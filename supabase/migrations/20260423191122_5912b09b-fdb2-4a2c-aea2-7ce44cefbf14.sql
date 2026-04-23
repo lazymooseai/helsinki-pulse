@@ -1,0 +1,1 @@
+delete from public.events where id = 'ba28494a-8342-413f-8e2f-cf39f64683f9';
