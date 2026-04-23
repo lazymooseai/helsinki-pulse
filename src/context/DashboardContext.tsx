@@ -448,6 +448,40 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
 
 export function useDashboard() {
   const ctx = useContext(DashboardContext);
-  if (!ctx) throw new Error("useDashboard must be used within DashboardProvider");
+  if (!ctx) {
+    // Tama voi tapahtua hetkellisesti Viten Fast Refreshin aikana, kun
+    // provider on uudelleenluotu mutta lapsi-komponentit ehtivat renderoityman
+    // ennen uutta provideria. Heitetaan virhe vain jos olemme oikeasti
+    // providerin ulkopuolella production-buildissa; devissa palautetaan
+    // turhempi tyhja tila etta sovellus ei kaadu HMR:n takia.
+    if (import.meta.env.DEV) {
+      console.warn(
+        "[useDashboard] context missing — likely HMR transient. Component will re-render once provider is ready."
+      );
+      // Palautetaan minimaalinen no-op stub. Komponentit lukevat lahinna
+      // state-objektia; tyhja state riittaa ettei kaadu.
+      return {
+        state: DEFAULT_STATE,
+        alerts: [],
+        topAlert: null,
+        hasJackpot: false,
+        isLoading: false,
+        lastFetch: null,
+        sourceTimestamps: { trains: null, ships: null, weather: null, events: null, flights: null, sports: null },
+        upcomingEvents: [],
+        refreshAll: async () => {},
+        refreshTrains: async () => {},
+        simulateShipArrival: () => {},
+        resetState: () => {},
+        crowdOverrides: {},
+        setCrowdOverride: () => {},
+        dispatchEdits: {},
+        setDispatchEdit: () => {},
+        trainStation: "HKI" as TrainStation,
+        setTrainStation: () => {},
+      } as unknown as ReturnType<typeof useContext<typeof DashboardContext>> extends infer T ? NonNullable<T> : never;
+    }
+    throw new Error("useDashboard must be used within DashboardProvider");
+  }
   return ctx;
 }
