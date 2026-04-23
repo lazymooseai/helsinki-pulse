@@ -274,6 +274,66 @@ function classifyDemand(loadFactor: number | null, soldOut: boolean): { level: '
   return { level: 'green', tag: 'NORMAALI' };
 }
 
+/**
+ * Pyytaa AI:ta arvioimaan load_factor heuristisesti niille tapahtumille,
+ * joille ei loytynyt tarkkaa lipunmyyntitietoa. Yksi batch-pyynto kaikille,
+ * jotta sailytetaan API-kustannukset alhaisina.
+ */
+async function aiEstimateLoadFactors(
+  events: Array<{ name: string; venue: string; start_time: string; capacity: number | null }>,
+  lovableKey: string,
+): Promise<Array<{ idx: number; load_factor: number; reasoning: string }>> {
+  if (events.length === 0) return [];
+  const list = events
+    .map(
+      (e, i) =>
+        `${i}. "${e.name}" @ ${e.venue} — ${e.start_time} (kapasiteetti: ${e.capacity ?? 'tuntematon'})`,
+    )
+    .join('\n');
+
+  const prompt = `Olet Helsingin tapahtumakysynnan asiantuntija. Arvioi jokaiselle tapahtumalle load_factor (0..1)
+jolla todennakoisesti tapahtuma on myyty. Heuristiikka:
+- Klassinen konsertti / oopperan paavuoro / suosittu artisti: 0.7-0.9
+- Pieni tuntematon konsertti / kokeellinen teatteri: 0.2-0.4
+- Festivaali / messut: 0.6-0.8
+- Stand-up / show: 0.5-0.8
+- Urheilun runkosarja: 0.5-0.75, playoff/finaali: 0.85-0.98
+- Suosittu ulkomainen artisti isolla areenalla: 0.85-0.98
+- Iltaesitys (klo 19+) suositulla venuella: +0.1 bonus
+- Viikonloppu (pe-su): +0.05 bonus
+- Pienet klubit (kapasiteetti <500): yleensa 0.5-0.7
+- Jos epavarma tai geneerinen: 0.5
+- Sold out -tieto pitaa olla 1.00, mutta ALA arvaa sold outiksi ilman naytttoa.
+
+Palauta JSON:
+{ "estimates": [ { "idx": 0, "load_factor": 0.65, "reasoning": "ooppera, perjantai-ilta" }, ... ] }
+
+Tapahtumat:
+${list}`;
+
+  const res = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${lovableKey}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      model: 'google/gemini-2.5-flash',
+      messages: [{ role: 'user', content: prompt }],
+      response_format: { type: 'json_object' },
+    }),
+  });
+  if (!res.ok) {
+    console.warn(`AI estimate ${res.status}`);
+    return [];
+  }
+  const data = await res.json();
+  const content = data.choices?.[0]?.message?.content || '{"estimates":[]}';
+  try {
+    const parsed = JSON.parse(content);
+    return Array.isArray(parsed.estimates) ? parsed.estimates : [];
+  } catch {
+    return [];
+  }
+}
+
 /** Skrapaa yhden aggregaattorisivun ja palauttaa parsedut tapahtumat. */
 async function scrapeAggregator(url: string, firecrawlKey: string, lovableKey: string): Promise<ParsedAggregatorEvent[]> {
   const md = await firecrawlScrape(url, firecrawlKey);
