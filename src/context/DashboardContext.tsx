@@ -448,6 +448,34 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
 
 export function useDashboard() {
   const ctx = useContext(DashboardContext);
-  if (!ctx) throw new Error("useDashboard must be used within DashboardProvider");
+  if (!ctx) {
+    // Vite Fast Refresh voi hetkellisesti renderoida lapsi-komponentteja
+    // ennen kuin uudelleenluotu DashboardProvider on valmis. Palautetaan
+    // turvallinen tyhja stub etta sovellus ei kaadu HMR-transientteihin.
+    if (import.meta.env.DEV) {
+      console.warn("[useDashboard] context missing — HMR transient, rendering empty stub.");
+      return {
+        state: DEFAULT_STATE,
+        alerts: [],
+        topAlert: null,
+        hasJackpot: false,
+        isLoading: false,
+        lastFetch: null,
+        sourceTimestamps: { trains: null, ships: null, weather: null, events: null, flights: null, sports: null },
+        upcomingEvents: [],
+        refreshAll: async () => {},
+        refreshTrains: async () => {},
+        simulateShipArrival: () => {},
+        resetState: () => {},
+        crowdOverrides: {},
+        setCrowdOverride: () => {},
+        dispatchEdits: {},
+        setDispatchEdit: () => {},
+        trainStation: "HKI" as TrainStation,
+        setTrainStation: () => {},
+      } as unknown as DashboardContextValue;
+    }
+    throw new Error("useDashboard must be used within DashboardProvider");
+  }
   return ctx;
 }
