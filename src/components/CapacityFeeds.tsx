@@ -780,13 +780,23 @@ const TimelineDetailSheet = ({ item, onClose }: { item: TimelineItem | null; onC
       icon = <Ticket className="h-7 w-7" />;
       title = e.name;
       subtitle = e.venue;
+      const loadPct =
+        e.loadFactor != null
+          ? Math.round(Number(e.loadFactor) * 100)
+          : e.capacity && e.estimatedAttendance
+          ? Math.round((e.estimatedAttendance / e.capacity) * 100)
+          : null;
       fields = [
         ...(e.startTime ? [{ label: "Alkamisaika", value: e.startTime, highlight: true }] : []),
         ...(e.endTime ? [{ label: "Päättyy", value: e.endTime }] : []),
         ...(e.capacity ? [{ label: "Kapasiteetti", value: e.capacity.toLocaleString("fi-FI") }] : []),
         ...(e.estimatedAttendance ? [{ label: "Yleisöarvio", value: `~${e.estimatedAttendance.toLocaleString("fi-FI")} hlö` }] : []),
+        ...(loadPct != null
+          ? [{ label: "Lipunmyynti", value: `${loadPct} %`, highlight: loadPct >= 85 }]
+          : []),
         { label: "Loppuunmyyty", value: e.soldOut ? "Kyllä" : "Ei" },
         ...(e.demandTag ? [{ label: "Kysyntä", value: e.demandTag }] : []),
+        ...(e.availabilityNote ? [{ label: "Tilanne", value: e.availabilityNote }] : []),
       ];
       externalUrl = getDeepLinkForVenue(e.venue) ?? undefined;
       externalLabel = externalUrl ? "Avaa tapahtumapaikka" : undefined;
