@@ -80,6 +80,15 @@ const TICKET_SOURCES = [
   { venueMatch: /olympiastadion/i, url: 'https://www.lippu.fi/venue/olympiastadion-helsinki-188/' },
   { venueMatch: /kaupunginteatteri/i, url: 'https://www.lippu.fi/venue/helsingin-kaupunginteatteri-helsinki-178/' },
   { venueMatch: /kansallisteatteri/i, url: 'https://www.lippu.fi/venue/suomen-kansallisteatteri-helsinki-209/' },
+  { venueMatch: /musiikkitalo/i, url: 'https://www.musiikkitalo.fi/tapahtumat' },
+  { venueMatch: /tavastia/i, url: 'https://www.tavastiaklubi.fi/' },
+  { venueMatch: /kannusali|espoon kulttuurikeskus|sellosali|tapiolasali/i, url: 'https://www.lippu.fi/city/helsinki/' },
+  { venueMatch: /kulttuuritalo/i, url: 'https://www.tiketti.fi/venue/Kulttuuritalo' },
+  { venueMatch: /finlandia/i, url: 'https://www.lippu.fi/venue/finlandia-talo-helsinki-156/' },
+  { venueMatch: /tanssin talo/i, url: 'https://tanssintalo.fi/ohjelmisto/' },
+  { venueMatch: /savoy/i, url: 'https://www.savoyteatteri.fi/ohjelma/' },
+  { venueMatch: /peacock/i, url: 'https://www.lippu.fi/venue/peacock-teatteri-helsinki-217/' },
+  { venueMatch: /messukeskus/i, url: 'https://messukeskus.com/tapahtumat/' },
 ];
 
 interface ParsedEvent {
