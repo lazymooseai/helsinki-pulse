@@ -111,6 +111,7 @@ const KULTTUURI_NAME_KEYS = [
   "orchestra",
   "jazz",
   "klubi",
+  "club",
   "stand up",
   "stand-up",
   "comedy",
@@ -145,10 +146,8 @@ const KULTTUURI_NAME_KEYS = [
  * vaikka venue olisi yleishalli.
  */
 const URHEILU_NAME_KEYS = [
-  "vs ",
+  " vs ",
   " vs.",
-  " - ",
-  " – ",
   "ottelu",
   "match",
   "liiga",
@@ -180,6 +179,18 @@ const URHEILU_NAME_KEYS = [
   "nyrkkeily",
   "kamppailu",
   "mma",
+  "hifk",
+  "hjk",
+  "jokerit",
+  "tappara",
+  "kärpät",
+  "ilves",
+  "tps",
+  "lukko",
+  "saipa",
+  "sport",
+  "kalpa",
+  "honka",
 ];
 
 /**
