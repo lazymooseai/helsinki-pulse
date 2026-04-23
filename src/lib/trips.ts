@@ -6,6 +6,7 @@
  */
 import * as XLSX from "xlsx";
 import { supabase } from "@/integrations/supabase/client";
+import { resolveAreaName } from "./areas";
 
 export interface TaxiTripRow {
   trip_id: string;
@@ -33,6 +34,16 @@ export interface TaxiTripStored extends TaxiTripRow {
   week_number: number | null;
   month_num: number | null;
   created_at: string;
+}
+
+/** Palauttaa nimetyn alueen lähtökoordinaatista (esim. "Kamppi", "Pasilan asema"). */
+export function tripStartArea(t: Pick<TaxiTripStored, "start_address" | "start_lat" | "start_lon">): string {
+  return resolveAreaName(t.start_address, t.start_lat, t.start_lon);
+}
+
+/** Palauttaa nimetyn alueen kohdekoordinaatista. */
+export function tripEndArea(t: Pick<TaxiTripStored, "end_address" | "end_lat" | "end_lon">): string {
+  return resolveAreaName(t.end_address, t.end_lat, t.end_lon);
 }
 
 export interface TripFilters {
