@@ -204,3 +204,10 @@ export async function triggerEventScrape(): Promise<{ ok: boolean; error?: strin
   const { error } = await supabase.functions.invoke("scrape-events");
   return error ? { ok: false, error: error.message } : { ok: true };
 }
+
+/** Triggeroi lipunmyyntidatan rikastuksen Firecrawlilla */
+export async function triggerTicketEnrichment(): Promise<{ ok: boolean; processed?: number; error?: string }> {
+  const { data, error } = await supabase.functions.invoke("enrich-event-tickets");
+  if (error) return { ok: false, error: error.message };
+  return { ok: true, processed: (data as { processed?: number })?.processed ?? 0 };
+}
