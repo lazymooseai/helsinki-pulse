@@ -698,6 +698,7 @@ const CapacityFeeds = () => {
   const [editingEventId, setEditingEventId] = useState<string | null>(null);
   const [showUpcoming, setShowUpcoming] = useState(false);
   const [showAddForm, setShowAddForm] = useState(false);
+  const [showSmallVenues, setShowSmallVenues] = useState(false);
 
   const editingEvent = editingEventId ? state.events.find((e) => e.id === editingEventId) : null;
 
@@ -749,6 +750,15 @@ const CapacityFeeds = () => {
     if (ob === "quiet" && oa !== "quiet") return -1;
     return (a.startTime || "").localeCompare(b.startTime || "");
   });
+
+  // Suodatus: oletuksena vain merkittävät tapahtumat
+  const significantEvents = sortedEvents.filter(isSignificantEvent);
+  const smallEvents = sortedEvents.filter((e) => !isSignificantEvent(e));
+  const visibleEvents = showSmallVenues ? sortedEvents : significantEvents;
+
+  const significantUpcoming = upcomingEvents.filter(isSignificantEvent);
+  const smallUpcoming = upcomingEvents.filter((e) => !isSignificantEvent(e));
+  const visibleUpcoming = showSmallVenues ? upcomingEvents : significantUpcoming;
 
   return (
     <>
