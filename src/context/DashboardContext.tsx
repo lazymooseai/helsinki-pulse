@@ -449,17 +449,11 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
 export function useDashboard() {
   const ctx = useContext(DashboardContext);
   if (!ctx) {
-    // Tama voi tapahtua hetkellisesti Viten Fast Refreshin aikana, kun
-    // provider on uudelleenluotu mutta lapsi-komponentit ehtivat renderoityman
-    // ennen uutta provideria. Heitetaan virhe vain jos olemme oikeasti
-    // providerin ulkopuolella production-buildissa; devissa palautetaan
-    // turhempi tyhja tila etta sovellus ei kaadu HMR:n takia.
+    // Vite Fast Refresh voi hetkellisesti renderoida lapsi-komponentteja
+    // ennen kuin uudelleenluotu DashboardProvider on valmis. Palautetaan
+    // turvallinen tyhja stub etta sovellus ei kaadu HMR-transientteihin.
     if (import.meta.env.DEV) {
-      console.warn(
-        "[useDashboard] context missing — likely HMR transient. Component will re-render once provider is ready."
-      );
-      // Palautetaan minimaalinen no-op stub. Komponentit lukevat lahinna
-      // state-objektia; tyhja state riittaa ettei kaadu.
+      console.warn("[useDashboard] context missing — HMR transient, rendering empty stub.");
       return {
         state: DEFAULT_STATE,
         alerts: [],
@@ -479,7 +473,7 @@ export function useDashboard() {
         setDispatchEdit: () => {},
         trainStation: "HKI" as TrainStation,
         setTrainStation: () => {},
-      } as unknown as ReturnType<typeof useContext<typeof DashboardContext>> extends infer T ? NonNullable<T> : never;
+      } as unknown as DashboardContextValue;
     }
     throw new Error("useDashboard must be used within DashboardProvider");
   }
