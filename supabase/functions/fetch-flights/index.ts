@@ -17,7 +17,7 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-const SOURCE_URL = "https://www.finavia.fi/fi/lentoasemat/helsinki-vantaa/saapuvat-lennot";
+const SOURCE_URL = "https://www.finavia.fi/fi/lentoasemat/helsinki-vantaa/lennot?tab=arr";
 const WINDOW_MS = 2 * 60 * 60 * 1000;
 const HELSINKI_TIMEZONE = "Europe/Helsinki";
 const CACHE_TTL_MS = 60 * 1000;
