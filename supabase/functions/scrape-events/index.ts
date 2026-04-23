@@ -14,19 +14,54 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-const VENUES = [
-  // Lipunmyyntisivut (lippu.fi / shop.oopperabaletti.fi) antavat parhaiten saatavuustiedot.
-  // Ohjelmasivut ovat varakanava nimien ja aikojen löytämiseen.
-  { name: 'Suomen Kansallisooppera', url: 'https://oopperabaletti.fi/kalenteri/', capacity: 1350, ticketsUrl: 'https://shop.oopperabaletti.fi/fi/' },
-  { name: 'Helsingin Jäähalli', url: 'https://helsinginjaahalli.fi/tapahtumat', capacity: 8200, ticketsUrl: 'https://www.lippu.fi/venue/helsingin-jaahalli-helsinki-159/' },
-  { name: 'Helsinki Halli', url: 'https://www.veikkausarena.fi/', capacity: 15500, ticketsUrl: 'https://www.lippu.fi/venue/helsinki-halli-helsinki-1102/' },
-  { name: 'Olympiastadion', url: 'https://www.stadion.fi/tapahtumat', capacity: 36000, ticketsUrl: 'https://www.lippu.fi/venue/olympiastadion-helsinki-188/' },
-  { name: 'Musiikkitalo', url: 'https://www.musiikkitalo.fi/tapahtumat', capacity: 1700 },
-  { name: 'Messukeskus', url: 'https://messukeskus.com/tapahtumat/', capacity: 12000 },
-  { name: 'Helsingin Kaupunginteatteri', url: 'https://hkt.fi/ohjelmisto/', capacity: 1120, ticketsUrl: 'https://www.lippu.fi/venue/helsingin-kaupunginteatteri-helsinki-178/' },
-  { name: 'Suomen Kansallisteatteri', url: 'https://kansallisteatteri.fi/ohjelmisto/', capacity: 880, ticketsUrl: 'https://www.lippu.fi/venue/suomen-kansallisteatteri-helsinki-209/' },
-  { name: 'Tanssin Talo', url: 'https://tanssintalo.fi/ohjelmisto/', capacity: 700 },
-  { name: 'Savoy-teatteri', url: 'https://www.savoyteatteri.fi/ohjelmisto/', capacity: 700 },
+/**
+ * Lähteet:
+ *  - stadissa.fi (aggregaattori): kattaa kaikki Helsingin + Espoon tapahtumat
+ *    venuen kanssa "Nimi | Venue" -muodossa. Pääasiallinen lista.
+ *  - venue-spesifit ohjelmasivut + lipunmyyntisivut: tarkat saatavuudet
+ *    isoille venueille (ooppera, jäähalli, stadion, hkt jne.)
+ */
+const AGGREGATOR_SOURCES = [
+  'https://www.stadissa.fi/',
+  'https://www.stadissa.fi/?date=tomorrow',
+];
+
+// Tunnetut venue-kapasiteetit jotta voidaan laskea load_factor
+const VENUE_CAPACITIES: Record<string, number> = {
+  'Suomen Kansallisooppera': 1350,
+  'Kansallisooppera': 1350,
+  'Helsingin Jäähalli': 8200,
+  'Jäähalli': 8200,
+  'Helsinki Halli': 15500,
+  'Olympiastadion': 36000,
+  'Musiikkitalo': 1700,
+  'Messukeskus': 12000,
+  'Helsingin Kaupunginteatteri': 1120,
+  'Suomen Kansallisteatteri': 880,
+  'Kansallisteatteri': 880,
+  'Tanssin Talo': 700,
+  'Savoy-teatteri': 700,
+  'Kannusali (Espoon keskus)': 700,
+  'Kannusali': 700,
+  'Espoon Kulttuurikeskus': 800,
+  'Sellosali': 400,
+  'Tavastia-klubi': 700,
+  'Tavastia': 700,
+  'Kulttuuritalo': 1500,
+  'Tapiolasali': 700,
+  'Finlandia-talo': 1700,
+  'Peacock-teatteri': 600,
+  'Svenska Teatern': 500,
+};
+
+// Tarkat saatavuussivut (skrapataan saatavuustietojen päivittämiseksi)
+const TICKET_SOURCES = [
+  { venueMatch: /ooppera/i, url: 'https://shop.oopperabaletti.fi/fi/' },
+  { venueMatch: /jäähalli|jaahalli/i, url: 'https://www.lippu.fi/venue/helsingin-jaahalli-helsinki-159/' },
+  { venueMatch: /helsinki halli|veikkausarena/i, url: 'https://www.lippu.fi/venue/helsinki-halli-helsinki-1102/' },
+  { venueMatch: /olympiastadion/i, url: 'https://www.lippu.fi/venue/olympiastadion-helsinki-188/' },
+  { venueMatch: /kaupunginteatteri/i, url: 'https://www.lippu.fi/venue/helsingin-kaupunginteatteri-helsinki-178/' },
+  { venueMatch: /kansallisteatteri/i, url: 'https://www.lippu.fi/venue/suomen-kansallisteatteri-helsinki-209/' },
 ];
 
 interface ParsedEvent {
@@ -55,6 +90,72 @@ async function firecrawlScrape(url: string, apiKey: string): Promise<string> {
   }
   const data = await res.json();
   return data.data?.markdown || data.markdown || '';
+}
+
+interface ParsedAggregatorEvent extends ParsedEvent {
+  venue: string;
+}
+
+/**
+ * Parsii stadissa.fi-tyyppisen aggregaattorimarkdownin (Helsinki + Espoo).
+ * Palauttaa rivit, joissa on { name, venue, start_time, end_time }.
+ * AI:n tehtävä: tunnistaa päivämääräotsikot + tapahtumarivit "HH | nimi | venue".
+ */
+async function aiParseAggregator(markdown: string, lovableKey: string): Promise<ParsedAggregatorEvent[]> {
+  const today = new Date().toISOString().slice(0, 10);
+  const sevenDays = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+
+  const prompt = `Olet tapahtumadatan jäsentelijä. Annetussa markdownissa on Helsingin/Espoon tapahtumakalenteri.
+Päivämäärät esitellään otsikoissa kuten "torstai 23 huhtikuu 2026". Niiden alla on tapahtumat muodossa:
+  "HH" (aloitustunti)
+  "[Tapahtuman nimi](url "Tapahtuman nimi | Venue")"
+
+TEHTÄVÄ: Poimi VAIN tapahtumat aikavälillä ${today} - ${sevenDays} (Europe/Helsinki).
+
+Palauta JSON:
+{
+  "events": [
+    {
+      "name": "Tapahtuman nimi (ilman venuea)",
+      "venue": "Venue",
+      "start_time": "2026-04-23T19:00:00+03:00",
+      "end_time": "2026-04-23T21:30:00+03:00"
+    }
+  ]
+}
+
+SÄÄNNÖT:
+- Käytä title-attribuutista venuen nimi (osa "| Venue" jälkeen). Jos puuttuu, jätä tyhjäksi.
+- start_time = otsikkopäivä + tunti (HH:00). Käytä +03:00 (kesäaika) huhtikuu–lokakuu, +02:00 muulloin.
+- end_time = start_time + 2.5h (oletus konsertille/teatterille).
+- Skipataan toistuvat näyttelyt, joiden aloitustunti on alle 12 ja jotka kestävät koko päivän (esim. galleriat) — keskity iltatapahtumiin (klo 17+) JA isoihin lounastapahtumiin.
+- Ota MUKAAN: konsertit, teatteri, ooppera, urheilu, suuret esitykset, festivaalit. ÄLÄ ota mukaan: pubivisat, baaripelit, päivittäiset bingoiltat, jatkuvat näyttelyt.
+- ÄLÄ keksi tapahtumia. Vain markdownissa näkyvät.
+
+MARKDOWN:
+${markdown.slice(0, 18000)}`;
+
+  const res = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${lovableKey}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      model: 'google/gemini-2.5-flash',
+      messages: [{ role: 'user', content: prompt }],
+      response_format: { type: 'json_object' },
+    }),
+  });
+  if (!res.ok) {
+    const t = await res.text();
+    throw new Error(`AI gateway ${res.status}: ${t.slice(0, 200)}`);
+  }
+  const data = await res.json();
+  const content = data.choices?.[0]?.message?.content || '{"events":[]}';
+  try {
+    const parsed = JSON.parse(content);
+    return Array.isArray(parsed.events) ? parsed.events : [];
+  } catch {
+    return [];
+  }
 }
 
 async function aiParseEvents(venue: string, markdown: string, lovableKey: string): Promise<ParsedEvent[]> {
@@ -125,6 +226,46 @@ ${markdown.slice(0, 12000)}`;
   }
 }
 
+function pickCapacityForVenue(venue: string): number | null {
+  if (!venue) return null;
+  const v = venue.trim();
+  if (VENUE_CAPACITIES[v] != null) return VENUE_CAPACITIES[v];
+  // fuzzy: tarkista osumat
+  for (const [key, cap] of Object.entries(VENUE_CAPACITIES)) {
+    if (v.toLowerCase().includes(key.toLowerCase()) || key.toLowerCase().includes(v.toLowerCase())) {
+      return cap;
+    }
+  }
+  return null;
+}
+
+function classifyDemand(loadFactor: number | null, soldOut: boolean): { level: 'red' | 'amber' | 'green'; tag: string } {
+  if (soldOut) return { level: 'red', tag: 'LOPPUUNMYYTY' };
+  const lf = loadFactor ?? 0;
+  if (lf >= 0.9) return { level: 'red', tag: 'KORKEA KYSYNTÄ' };
+  if (lf >= 0.7) return { level: 'amber', tag: 'PREMIUM' };
+  return { level: 'green', tag: 'NORMAALI' };
+}
+
+/** Skrapaa yhden aggregaattorisivun ja palauttaa parsedut tapahtumat. */
+async function scrapeAggregator(url: string, firecrawlKey: string, lovableKey: string): Promise<ParsedAggregatorEvent[]> {
+  const md = await firecrawlScrape(url, firecrawlKey);
+  if (!md) return [];
+  return aiParseAggregator(md, lovableKey);
+}
+
+/** Skrapaa yhden lipunmyyntisivun saatavuuden tarkennusta varten. */
+async function scrapeTicketSource(url: string, firecrawlKey: string, lovableKey: string): Promise<ParsedEvent[]> {
+  try {
+    const md = await firecrawlScrape(url, firecrawlKey);
+    if (!md) return [];
+    return await aiParseEvents('Lipunmyynti', md, lovableKey);
+  } catch (e) {
+    console.warn(`Ticket scrape failed (${url}):`, e instanceof Error ? e.message : String(e));
+    return [];
+  }
+}
+
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response(null, { headers: corsHeaders });
 
@@ -140,102 +281,97 @@ Deno.serve(async (req) => {
   }
 
   const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
-  const results: Array<{ venue: string; ok: boolean; count: number; error?: string }> = [];
 
-  for (const venue of VENUES) {
-    try {
-      console.log(`Scraping ${venue.name} (${venue.url})`);
-      const markdown = await firecrawlScrape(venue.url, FIRECRAWL_API_KEY);
-      if (!markdown) {
-        results.push({ venue: venue.name, ok: false, count: 0, error: 'empty markdown' });
-        continue;
-      }
-      const events = await aiParseEvents(venue.name, markdown, LOVABLE_API_KEY);
-      console.log(`${venue.name}: ${events.length} events parsed from program page`);
+  // 1) Skrapaa aggregaattorit + lipunmyyntisivut RINNAKKAIN
+  const aggregatorPromises = AGGREGATOR_SOURCES.map((u) =>
+    scrapeAggregator(u, FIRECRAWL_API_KEY, LOVABLE_API_KEY)
+      .then((evs) => ({ url: u, events: evs, error: null as string | null }))
+      .catch((e) => ({ url: u, events: [] as ParsedAggregatorEvent[], error: e instanceof Error ? e.message : String(e) }))
+  );
 
-      // Lipunmyyntisivu: hae tarkemmat saatavuustiedot ja yhdistä events-listaan nimen perusteella
-      if (venue.ticketsUrl && events.length > 0) {
-        try {
-          console.log(`Scraping tickets for ${venue.name} (${venue.ticketsUrl})`);
-          const ticketsMd = await firecrawlScrape(venue.ticketsUrl, FIRECRAWL_API_KEY);
-          if (ticketsMd) {
-            const ticketEvents = await aiParseEvents(venue.name, ticketsMd, LOVABLE_API_KEY);
-            console.log(`${venue.name}: ${ticketEvents.length} ticket entries found`);
-            // Yhdistä saatavuustiedot ohjelmasivun tapahtumiin nimi-matchilla
-            for (const ev of events) {
-              const match = ticketEvents.find((te) => {
-                const a = te.name.toLowerCase().replace(/[^a-zåäö0-9]/g, '');
-                const b = ev.name.toLowerCase().replace(/[^a-zåäö0-9]/g, '');
-                return a.includes(b) || b.includes(a);
-              });
-              if (match) {
-                ev.sold_out = match.sold_out ?? ev.sold_out;
-                ev.load_factor = match.load_factor ?? ev.load_factor;
-                ev.availability_note = match.availability_note ?? ev.availability_note;
-              }
-            }
-          }
-        } catch (e) {
-          console.warn(`Tickets scrape failed for ${venue.name}:`, e instanceof Error ? e.message : String(e));
-        }
-      }
+  const ticketPromises = TICKET_SOURCES.map((t) =>
+    scrapeTicketSource(t.url, FIRECRAWL_API_KEY, LOVABLE_API_KEY)
+      .then((evs) => ({ url: t.url, venueMatch: t.venueMatch, events: evs }))
+      .catch(() => ({ url: t.url, venueMatch: t.venueMatch, events: [] as ParsedEvent[] }))
+  );
 
-      // Upsert events
-      let count = 0;
-      for (const ev of events) {
-        const externalId = `scraped:${venue.name}:${ev.start_time}:${ev.name.slice(0, 50)}`;
-        const tickets_sold = ev.load_factor != null && venue.capacity
-          ? Math.round(venue.capacity * ev.load_factor)
-          : null;
-        const demand_level: 'red' | 'amber' | 'green' = ev.sold_out || (ev.load_factor ?? 0) >= 0.9
-          ? 'red'
-          : (ev.load_factor ?? 0) >= 0.7
-          ? 'amber'
-          : 'green';
-        const demand_tag = ev.sold_out
-          ? 'LOPPUUNMYYTY'
-          : (ev.load_factor ?? 0) >= 0.9
-          ? 'KORKEA KYSYNTÄ'
-          : (ev.load_factor ?? 0) >= 0.7
-          ? 'PREMIUM'
-          : 'NORMAALI';
+  const [aggregatorResults, ticketResults] = await Promise.all([
+    Promise.all(aggregatorPromises),
+    Promise.all(ticketPromises),
+  ]);
 
-        const { error } = await supabase.from('events').upsert({
-          external_id: externalId,
-          name: ev.name,
-          venue: venue.name,
-          start_time: ev.start_time,
-          end_time: ev.end_time ?? null,
-          capacity: venue.capacity,
-          tickets_sold,
-          load_factor: ev.load_factor ?? null,
-          sold_out: !!ev.sold_out,
-          demand_level,
-          demand_tag,
-          source_url: venue.url,
-          source: 'scraper',
-          is_manual: false,
-          last_scraped_at: new Date().toISOString(),
-        }, { onConflict: 'external_id' });
-
-        if (!error) count++;
-        else console.warn(`Upsert err for ${ev.name}:`, error.message);
-      }
-      results.push({ venue: venue.name, ok: true, count });
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      console.error(`Failed ${venue.name}:`, msg);
-      results.push({ venue: venue.name, ok: false, count: 0, error: msg });
+  // 2) Yhdistä aggregaattorin tapahtumat (deduplikoidaan: sama venue+start_time+name)
+  const combined = new Map<string, ParsedAggregatorEvent>();
+  for (const r of aggregatorResults) {
+    for (const ev of r.events) {
+      if (!ev.start_time || !ev.name) continue;
+      const key = `${(ev.venue || 'tuntematon').toLowerCase()}|${ev.start_time.slice(0, 16)}|${ev.name.toLowerCase().slice(0, 40)}`;
+      if (!combined.has(key)) combined.set(key, ev);
     }
   }
 
-  // Siivoa vanhat skrapatut tapahtumat (yli 7 pv menneisyydessä)
+  // 3) Tarkenna saatavuudet lipunmyyntisivuilta nimi-matchilla
+  for (const ev of combined.values()) {
+    const ticketSet = ticketResults.find((t) => t.venueMatch.test(ev.venue || ''));
+    if (!ticketSet) continue;
+    const match = ticketSet.events.find((te) => {
+      const a = te.name.toLowerCase().replace(/[^a-zåäö0-9]/g, '');
+      const b = ev.name.toLowerCase().replace(/[^a-zåäö0-9]/g, '');
+      return a && b && (a.includes(b) || b.includes(a));
+    });
+    if (match) {
+      ev.sold_out = match.sold_out ?? ev.sold_out;
+      ev.load_factor = match.load_factor ?? ev.load_factor;
+      ev.availability_note = match.availability_note ?? ev.availability_note;
+    }
+  }
+
+  // 4) Upsert tietokantaan
+  let upsertCount = 0;
+  const upsertErrors: string[] = [];
+  for (const ev of combined.values()) {
+    const venueName = ev.venue?.trim() || 'Tuntematon paikka';
+    const capacity = pickCapacityForVenue(venueName);
+    const tickets_sold = ev.load_factor != null && capacity ? Math.round(capacity * ev.load_factor) : null;
+    const { level, tag } = classifyDemand(ev.load_factor ?? null, !!ev.sold_out);
+    const externalId = `scraped:${venueName}:${ev.start_time}:${ev.name.slice(0, 50)}`;
+
+    const { error } = await supabase.from('events').upsert({
+      external_id: externalId,
+      name: ev.name,
+      venue: venueName,
+      start_time: ev.start_time,
+      end_time: ev.end_time ?? null,
+      capacity,
+      tickets_sold,
+      load_factor: ev.load_factor ?? null,
+      sold_out: !!ev.sold_out,
+      demand_level: level,
+      demand_tag: tag,
+      source_url: 'https://www.stadissa.fi/',
+      source: 'scraper',
+      is_manual: false,
+      last_scraped_at: new Date().toISOString(),
+    }, { onConflict: 'external_id' });
+
+    if (error) {
+      upsertErrors.push(`${ev.name}: ${error.message}`);
+    } else {
+      upsertCount++;
+    }
+  }
+
+  // 5) Siivoa vanhat skrapatut tapahtumat (eilistä vanhemmat)
   const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
   await supabase.from('events').delete().eq('source', 'scraper').lt('start_time', cutoff);
 
   return new Response(JSON.stringify({
     ok: true,
     timestamp: new Date().toISOString(),
-    results,
+    aggregator_sources: aggregatorResults.map((r) => ({ url: r.url, count: r.events.length, error: r.error })),
+    ticket_sources: ticketResults.map((t) => ({ url: t.url, count: t.events.length })),
+    upserted: upsertCount,
+    unique_events: combined.size,
+    upsert_errors: upsertErrors.slice(0, 5),
   }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
 });
