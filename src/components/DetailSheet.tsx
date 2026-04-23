@@ -82,13 +82,15 @@ const DetailSheet = ({
         {extra && <div className="mt-4">{extra}</div>}
 
         {externalUrl && (
-          <button
-            onClick={() => window.open(externalUrl, "_blank", "noopener,noreferrer")}
+          <a
+            href={externalUrl}
+            target="_blank"
+            rel="noopener noreferrer"
             className="mt-6 w-full flex items-center justify-center gap-2 rounded-xl bg-primary min-h-[56px] font-black text-lg text-primary-foreground active:scale-95 transition-transform glow-green"
           >
             <ExternalLink className="h-5 w-5" />
             {externalLabel}
-          </button>
+          </a>
         )}
       </SheetContent>
     </Sheet>
