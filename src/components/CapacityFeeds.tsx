@@ -1,10 +1,29 @@
 import { useState } from "react";
-import { Ship, TrainFront, Flame, Snowflake, Ticket, CheckCircle, MinusCircle, AlertTriangle, Pencil, X, Save, ExternalLink, ChevronDown, ChevronUp, Plus, Trash2 } from "lucide-react";
+import { Ship, TrainFront, Flame, Snowflake, Ticket, CheckCircle, MinusCircle, AlertTriangle, Pencil, X, Save, ExternalLink, ChevronDown, ChevronUp, Plus, Trash2, Filter } from "lucide-react";
 import { useDashboard, CrowdOverride, DispatchEdit } from "@/context/DashboardContext";
 import { EventInfo } from "@/lib/types";
 import { TRAIN_STATIONS, type TrainStation } from "@/lib/fintraffic";
 import { addManualEvent, deleteManualEvent, triggerEventScrape } from "@/lib/events";
 import { toast } from "sonner";
+
+/**
+ * Merkittävä-suodatus: tapahtuma kelpaa jos jokin näistä pätee:
+ *  - Manuaalisesti lisätty (kuljettajan override)
+ *  - Venue-kapasiteetti >= 300 hlö
+ *  - Loppuunmyyty TAI korkea kysyntä (red demand level)
+ *  - Arvioitu yleisö >= 300 hlö
+ * Tämä karsii baarit, kahvilat ja pienet klubit oletuksesta.
+ */
+const SIGNIFICANT_CAPACITY_THRESHOLD = 300;
+function isSignificantEvent(ev: EventInfo): boolean {
+  // Manuaaliset AINA näkyviin (id ei sisällä "scraped")
+  if (ev.id && !ev.id.includes("scraped") && !ev.id.startsWith("fallback")) return true;
+  if (ev.soldOut) return true;
+  if (ev.demandLevel === "red") return true;
+  if (ev.capacity && ev.capacity >= SIGNIFICANT_CAPACITY_THRESHOLD) return true;
+  if (ev.estimatedAttendance && ev.estimatedAttendance >= SIGNIFICANT_CAPACITY_THRESHOLD) return true;
+  return false;
+}
 
 /* ── Deep Link URL Mapping (VERIFIED direct pages, not homepages) ── */
 const DEEP_LINKS: Record<string, string> = {
