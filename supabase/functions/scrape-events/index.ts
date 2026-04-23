@@ -14,19 +14,54 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-const VENUES = [
-  // Lipunmyyntisivut (lippu.fi / shop.oopperabaletti.fi) antavat parhaiten saatavuustiedot.
-  // Ohjelmasivut ovat varakanava nimien ja aikojen löytämiseen.
-  { name: 'Suomen Kansallisooppera', url: 'https://oopperabaletti.fi/kalenteri/', capacity: 1350, ticketsUrl: 'https://shop.oopperabaletti.fi/fi/' },
-  { name: 'Helsingin Jäähalli', url: 'https://helsinginjaahalli.fi/tapahtumat', capacity: 8200, ticketsUrl: 'https://www.lippu.fi/venue/helsingin-jaahalli-helsinki-159/' },
-  { name: 'Helsinki Halli', url: 'https://www.veikkausarena.fi/', capacity: 15500, ticketsUrl: 'https://www.lippu.fi/venue/helsinki-halli-helsinki-1102/' },
-  { name: 'Olympiastadion', url: 'https://www.stadion.fi/tapahtumat', capacity: 36000, ticketsUrl: 'https://www.lippu.fi/venue/olympiastadion-helsinki-188/' },
-  { name: 'Musiikkitalo', url: 'https://www.musiikkitalo.fi/tapahtumat', capacity: 1700 },
-  { name: 'Messukeskus', url: 'https://messukeskus.com/tapahtumat/', capacity: 12000 },
-  { name: 'Helsingin Kaupunginteatteri', url: 'https://hkt.fi/ohjelmisto/', capacity: 1120, ticketsUrl: 'https://www.lippu.fi/venue/helsingin-kaupunginteatteri-helsinki-178/' },
-  { name: 'Suomen Kansallisteatteri', url: 'https://kansallisteatteri.fi/ohjelmisto/', capacity: 880, ticketsUrl: 'https://www.lippu.fi/venue/suomen-kansallisteatteri-helsinki-209/' },
-  { name: 'Tanssin Talo', url: 'https://tanssintalo.fi/ohjelmisto/', capacity: 700 },
-  { name: 'Savoy-teatteri', url: 'https://www.savoyteatteri.fi/ohjelmisto/', capacity: 700 },
+/**
+ * Lähteet:
+ *  - stadissa.fi (aggregaattori): kattaa kaikki Helsingin + Espoon tapahtumat
+ *    venuen kanssa "Nimi | Venue" -muodossa. Pääasiallinen lista.
+ *  - venue-spesifit ohjelmasivut + lipunmyyntisivut: tarkat saatavuudet
+ *    isoille venueille (ooppera, jäähalli, stadion, hkt jne.)
+ */
+const AGGREGATOR_SOURCES = [
+  'https://www.stadissa.fi/',
+  'https://www.stadissa.fi/?date=tomorrow',
+];
+
+// Tunnetut venue-kapasiteetit jotta voidaan laskea load_factor
+const VENUE_CAPACITIES: Record<string, number> = {
+  'Suomen Kansallisooppera': 1350,
+  'Kansallisooppera': 1350,
+  'Helsingin Jäähalli': 8200,
+  'Jäähalli': 8200,
+  'Helsinki Halli': 15500,
+  'Olympiastadion': 36000,
+  'Musiikkitalo': 1700,
+  'Messukeskus': 12000,
+  'Helsingin Kaupunginteatteri': 1120,
+  'Suomen Kansallisteatteri': 880,
+  'Kansallisteatteri': 880,
+  'Tanssin Talo': 700,
+  'Savoy-teatteri': 700,
+  'Kannusali (Espoon keskus)': 700,
+  'Kannusali': 700,
+  'Espoon Kulttuurikeskus': 800,
+  'Sellosali': 400,
+  'Tavastia-klubi': 700,
+  'Tavastia': 700,
+  'Kulttuuritalo': 1500,
+  'Tapiolasali': 700,
+  'Finlandia-talo': 1700,
+  'Peacock-teatteri': 600,
+  'Svenska Teatern': 500,
+};
+
+// Tarkat saatavuussivut (skrapataan saatavuustietojen päivittämiseksi)
+const TICKET_SOURCES = [
+  { venueMatch: /ooppera/i, url: 'https://shop.oopperabaletti.fi/fi/' },
+  { venueMatch: /jäähalli|jaahalli/i, url: 'https://www.lippu.fi/venue/helsingin-jaahalli-helsinki-159/' },
+  { venueMatch: /helsinki halli|veikkausarena/i, url: 'https://www.lippu.fi/venue/helsinki-halli-helsinki-1102/' },
+  { venueMatch: /olympiastadion/i, url: 'https://www.lippu.fi/venue/olympiastadion-helsinki-188/' },
+  { venueMatch: /kaupunginteatteri/i, url: 'https://www.lippu.fi/venue/helsingin-kaupunginteatteri-helsinki-178/' },
+  { venueMatch: /kansallisteatteri/i, url: 'https://www.lippu.fi/venue/suomen-kansallisteatteri-helsinki-209/' },
 ];
 
 interface ParsedEvent {
