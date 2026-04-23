@@ -34,6 +34,8 @@ export interface EventInfo {
   endTime?: string;       // HH:MM muodossa - paattymisaika (purkuaika)
   capacity?: number;      // Venue-kapasiteetti (paikkamäärä)
   estimatedAttendance?: number; // Arvio yleisömäärästä
+  loadFactor?: number;    // 0..1 - lipunmyyntiaste
+  availabilityNote?: string; // Vapaa kuvaus tilanteesta tai AI-arvion peruste
 }
 
 export interface WeatherData {
