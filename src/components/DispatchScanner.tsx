@@ -149,8 +149,8 @@ const DispatchScanner = ({ open, onOpenChange, onSaved }: Props) => {
       });
 
       if (!bestRes || bestIdx < 0) {
-        const firstErr = results.find((r) => !r.ok);
-        toast.error("AI-luenta epaonnistui: " + (firstErr && !firstErr.ok ? firstErr.error : "tuntematon"));
+        const firstErr = results.find((r): r is { ok: false; error: string } => !r.ok);
+        toast.error("AI-luenta epaonnistui: " + (firstErr ? firstErr.error : "tuntematon"));
         setStage("capture");
         return;
       }
