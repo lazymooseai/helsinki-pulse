@@ -38,7 +38,11 @@ export interface OcrResult {
 /**
  * Ajaa kuvan AI-OCR:n lapi ja palauttaa luetut luvut.
  */
-export async function runOcr(dataUrl: string): Promise<{ ok: true; result: OcrResult } | { ok: false; error: string }> {
+export type OcrCallResult =
+  | { ok: true; result: OcrResult; error?: undefined }
+  | { ok: false; error: string; result?: undefined };
+
+export async function runOcr(dataUrl: string): Promise<OcrCallResult> {
   try {
     const { data, error } = await supabase.functions.invoke("scan-dispatch", {
       body: { image: dataUrl },
@@ -73,6 +77,10 @@ export async function uploadScanImage(blob: Blob, scanId: string): Promise<strin
   return data.publicUrl;
 }
 
+export type InsertScanResult =
+  | { ok: true; id: string; error?: undefined }
+  | { ok: false; error: string; id?: undefined };
+
 export async function insertScan(payload: {
   tolppa: string;
   k_now: number | null;
@@ -86,7 +94,7 @@ export async function insertScan(payload: {
   is_verified: boolean;
   source: string;
   scanned_at?: string;
-}): Promise<{ ok: true; id: string } | { ok: false; error: string }> {
+}): Promise<InsertScanResult> {
   const { data, error } = await supabase
     .from("dispatch_scans")
     .insert({
