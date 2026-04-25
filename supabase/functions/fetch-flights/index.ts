@@ -256,6 +256,10 @@ Deno.serve(async (req) => {
       });
     }
 
+    const todayHel = helsinkiDateString(new Date());
+    const sourceUrl = `${SOURCE_BASE}?tab=arr&date=${todayHel}`;
+    console.log(`Scrape URL: ${sourceUrl}`);
+
     const r = await fetch("https://api.firecrawl.dev/v2/scrape", {
       method: "POST",
       headers: {
@@ -263,10 +267,10 @@ Deno.serve(async (req) => {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        url: SOURCE_URL,
+        url: sourceUrl,
         formats: ["markdown"],
         onlyMainContent: true,
-        waitFor: 2000,
+        waitFor: 3000,
       }),
       signal: AbortSignal.timeout(30000),
     });
