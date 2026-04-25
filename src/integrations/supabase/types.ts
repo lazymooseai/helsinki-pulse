@@ -14,6 +14,63 @@ export type Database = {
   }
   public: {
     Tables: {
+      dispatch_scans: {
+        Row: {
+          created_at: string
+          id: string
+          is_verified: boolean
+          k_30: number | null
+          k_now: number | null
+          notes: string | null
+          ocr_confidence: number | null
+          ocr_raw_text: string | null
+          raw_image_url: string | null
+          scanned_at: string
+          scanned_by_device: string | null
+          source: string
+          t_30: number | null
+          t_now: number | null
+          tolppa: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          is_verified?: boolean
+          k_30?: number | null
+          k_now?: number | null
+          notes?: string | null
+          ocr_confidence?: number | null
+          ocr_raw_text?: string | null
+          raw_image_url?: string | null
+          scanned_at?: string
+          scanned_by_device?: string | null
+          source?: string
+          t_30?: number | null
+          t_now?: number | null
+          tolppa: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          is_verified?: boolean
+          k_30?: number | null
+          k_now?: number | null
+          notes?: string | null
+          ocr_confidence?: number | null
+          ocr_raw_text?: string | null
+          raw_image_url?: string | null
+          scanned_at?: string
+          scanned_by_device?: string | null
+          source?: string
+          t_30?: number | null
+          t_now?: number | null
+          tolppa?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       events: {
         Row: {
           availability_note: string | null

@@ -11,6 +11,7 @@ import ScanButton from "@/components/ScanButton";
 import DevTools from "@/components/DevTools";
 import TripHistoryCard from "@/components/trips/TripHistoryCard";
 import TripsTabs from "@/components/trips/TripsTabs";
+import DispatchLiveCard from "@/components/DispatchLiveCard";
 
 const Index = () => {
   return (
@@ -21,6 +22,7 @@ const Index = () => {
         <CommandCenter />
         <FeedbackButtons />
         <JackpotAlert />
+        <DispatchLiveCard />
         <CapacityFeeds />
         <DetailTabs />
         <TrafficCameras />

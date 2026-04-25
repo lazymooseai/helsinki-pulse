@@ -21,6 +21,7 @@ Updated: now
 - [Situational Awareness](mem://features/situational-awareness) — HSL alerts, traffic cameras, and emergency links
 - [Interactive Data Cards](mem://features/interactive-data-cards) — Interactive links and freshness indicators on all data cards
 - [Train Station Selector](mem://features/train-station-selector) — Toggles between HKI, PSL, TKL stations, filtered for HKI-bound traffic
+- [Dispatch Scanner](mem://features/dispatch-scanner) — Camera + AI-OCR (Gemini 2.5 Flash) for Taksi Helsinki dispatch screen → live K/T per tolppa
 - [Trip History](mem://features/trip-history) — taxi_trips & trip_patterns: tuonti (CSV/XLSX), manuaalinen syöttö, haku, analytiikkakortti
 - [Real-Time Refresh](mem://features/real-time-refresh) — Per-source refresh intervals and visible countdown indicator on data tabs
 - [Flights & Sports](mem://features/flights-sports) — HEL-Vantaa flight arrivals (Finavia) + sports events with teams/attendance
