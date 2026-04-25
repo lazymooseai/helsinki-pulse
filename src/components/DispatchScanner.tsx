@@ -19,7 +19,7 @@ import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import {
   extractVideoFrames,
-  fileToDataUrl,
+  fileToJpegDataUrl,
   insertScan,
   runOcr,
   type OcrResult,
@@ -75,7 +75,8 @@ const DispatchScanner = ({ open, onOpenChange, onSaved }: Props) => {
 
   const handlePicked = async (file: File | undefined) => {
     if (!file) return;
-    if (!file.type.startsWith("image/")) {
+    // Sallitaan myos tyhja MIME (iOS lahettaa joskus naita) — canvas ratkaisee sopivuuden
+    if (file.type && !file.type.startsWith("image/")) {
       toast.error("Vain kuvatiedostot kelpaavat");
       return;
     }
@@ -85,10 +86,12 @@ const DispatchScanner = ({ open, onOpenChange, onSaved }: Props) => {
     }
     setImageBlob(file);
     setStage("analyzing");
-    setAnalyzeNote("Gemini AI lukee numeroita...");
+    setAnalyzeNote("Pakataan kuvaa...");
     try {
-      const dataUrl = await fileToDataUrl(file);
+      // Pakotetaan JPEG:ksi: Gemini ei tue DNG/HEIC/RAW-tyyppeja
+      const dataUrl = await fileToJpegDataUrl(file);
       setImageDataUrl(dataUrl);
+      setAnalyzeNote("Gemini AI lukee numeroita...");
       const res = await runOcr(dataUrl);
       if (!res.ok) {
         toast.error("AI-luenta epaonnistui: " + res.error);
