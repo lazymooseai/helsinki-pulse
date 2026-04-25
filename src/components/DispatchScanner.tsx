@@ -37,7 +37,7 @@ type Stage = "capture" | "analyzing" | "review";
 const numField = (v: number | null) => (v === null || v === undefined ? "" : String(v));
 const MAX_VIDEO_SEC = 30;
 const MAX_VIDEO_MB = 50;
-const MAX_IMAGE_MB = 10;
+const MAX_IMAGE_MB = 20;
 
 const DispatchScanner = ({ open, onOpenChange, onSaved }: Props) => {
   const [stage, setStage] = useState<Stage>("capture");
