@@ -22,7 +22,6 @@ import {
   fileToDataUrl,
   insertScan,
   runOcr,
-  uploadScanImage,
   type OcrResult,
 } from "@/lib/dispatchScans";
 
@@ -182,12 +181,6 @@ const DispatchScanner = ({ open, onOpenChange, onSaved }: Props) => {
     }
     setSaving(true);
 
-    let imageUrl: string | null = null;
-    if (imageBlob) {
-      const tempId = crypto.randomUUID();
-      imageUrl = await uploadScanImage(imageBlob, tempId);
-    }
-
     const parseIntOrNull = (v: string) => {
       const n = parseInt(v, 10);
       return Number.isFinite(n) ? n : null;
@@ -199,7 +192,7 @@ const DispatchScanner = ({ open, onOpenChange, onSaved }: Props) => {
       t_now: parseIntOrNull(form.t_now),
       k_30: parseIntOrNull(form.k_30),
       t_30: parseIntOrNull(form.t_30),
-      raw_image_url: imageUrl,
+      raw_image_url: null,
       ocr_confidence: ocr?.confidence ?? null,
       ocr_raw_text: ocr?.raw_text ?? null,
       notes: form.notes.trim() || null,
