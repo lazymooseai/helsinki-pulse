@@ -75,6 +75,20 @@ Deno.serve(async (req: Request) => {
     const mimeType = match[1];
     const base64Data = match[2];
 
+    // Gemini tukee vain naita kuvatyyppeja - DNG/HEIC/RAW ei toimi
+    const SUPPORTED_MIMES = ["image/jpeg", "image/png", "image/webp", "image/heif"];
+    if (!SUPPORTED_MIMES.includes(mimeType)) {
+      return new Response(
+        JSON.stringify({
+          error: `Kuvatyyppi ${mimeType} ei ole tuettu. Kayta JPEG/PNG/WEBP. Vaihda kameran asetuksista RAW/DNG pois paalta.`,
+        }),
+        {
+          status: 415,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        }
+      );
+    }
+
     const aiRes = await fetch(`${GEMINI_URL}?key=${GEMINI_API_KEY}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
