@@ -25,9 +25,14 @@ Kuljettaja kuvaa Taksi Helsinki -valityslaitteen naytön puhelimellaan TAI lataa
 
 ## Komponentit
 - `src/lib/dispatchScans.ts` — runOcr, uploadScanImage, insertScan, listRecentScans, getLatestPerTolppa
-- `src/components/DispatchScanner.tsx` — Sheet-pohjainen UI: kamera (capture="environment") + tiedostolataus + esikatselu + AI-luenta + manuaalinen korjaus + tallennus
+- `src/components/DispatchScanner.tsx` — Sheet-pohjainen UI: kuva (kamera/tiedosto) + video (kamera/tiedosto, max 30s/50MB) + esikatselu + AI-luenta + manuaalinen korjaus + tallennus
 - `src/components/DispatchLiveCard.tsx` — dashboard-kortti, viimeisimmat skannaukset per tolppa (max 120 min), realtime-kanava, signaali (KYSYNTA/TASAPAINO/YLITARJONTA = K-T diff)
 - `src/components/ScanButton.tsx` — kelluva alanappi avaa DispatchScannerin
+
+## Videoluenta
+- `extractVideoFrames(file, {frameCount:4, maxDurationSec:30})` purkaa videosta tasaisin valein 4 JPEG-kehysta `<video>+<canvas>`-tekniikalla (ei lisariippuvuuksia, toimii selaimessa)
+- Jokainen kehys ajetaan `runOcr`:n lapi (Promise.all), korkeimman `confidence`-arvon framesta otetaan luvut + tallennetaan still-kuvana storageen → schema sailyy samana
+- Rajat: video max 30s + 50MB, kuva max 10MB
 
 ## Tuleva integraatio
 - `getLatestPerTolppa()` palauttaa Mapin → CommandCenter voi lukea livea ja painottaa zone-suosituksia

@@ -155,3 +155,107 @@ export function fileToDataUrl(file: File | Blob): Promise<string> {
     r.readAsDataURL(file);
   });
 }
+
+/**
+ * Pura videosta tasaisin valein N avainkehysta JPEG-blob+dataUrl-muodossa.
+ * Tarkistaa ensin keston (max sallittu sekunteina).
+ */
+export interface VideoFrame {
+  blob: Blob;
+  dataUrl: string;
+  timeSec: number;
+}
+
+export type ExtractFramesResult =
+  | { ok: true; frames: VideoFrame[]; duration: number; error?: undefined }
+  | { ok: false; error: string; frames?: undefined; duration?: undefined };
+
+export async function extractVideoFrames(
+  file: File | Blob,
+  opts: { frameCount?: number; maxDurationSec?: number; quality?: number } = {},
+): Promise<ExtractFramesResult> {
+  const frameCount = opts.frameCount ?? 4;
+  const maxDurationSec = opts.maxDurationSec ?? 30;
+  const quality = opts.quality ?? 0.85;
+
+  return new Promise((resolve) => {
+    const url = URL.createObjectURL(file);
+    const video = document.createElement("video");
+    video.preload = "auto";
+    video.muted = true;
+    video.playsInline = true;
+    video.src = url;
+
+    const cleanup = () => URL.revokeObjectURL(url);
+
+    video.onerror = () => {
+      cleanup();
+      resolve({ ok: false, error: "Videon avaus epaonnistui" });
+    };
+
+    video.onloadedmetadata = async () => {
+      const duration = video.duration;
+      if (!Number.isFinite(duration) || duration <= 0) {
+        cleanup();
+        resolve({ ok: false, error: "Videon kestoa ei voitu lukea" });
+        return;
+      }
+      if (duration > maxDurationSec + 0.5) {
+        cleanup();
+        resolve({ ok: false, error: `Video on liian pitka (${duration.toFixed(1)}s, max ${maxDurationSec}s)` });
+        return;
+      }
+
+      const canvas = document.createElement("canvas");
+      canvas.width = video.videoWidth || 1280;
+      canvas.height = video.videoHeight || 720;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) {
+        cleanup();
+        resolve({ ok: false, error: "Canvas-konteksti puuttuu" });
+        return;
+      }
+
+      const seekTo = (t: number) =>
+        new Promise<void>((res, rej) => {
+          const onSeeked = () => {
+            video.removeEventListener("seeked", onSeeked);
+            res();
+          };
+          const onErr = () => {
+            video.removeEventListener("error", onErr);
+            rej(new Error("seek epaonnistui"));
+          };
+          video.addEventListener("seeked", onSeeked, { once: true });
+          video.addEventListener("error", onErr, { once: true });
+          video.currentTime = Math.min(t, Math.max(0, duration - 0.05));
+        });
+
+      const frames: VideoFrame[] = [];
+      try {
+        for (let i = 0; i < frameCount; i++) {
+          const t = (duration * (i + 1)) / (frameCount + 1);
+          await seekTo(t);
+          ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+          const blob: Blob | null = await new Promise((r) =>
+            canvas.toBlob((b) => r(b), "image/jpeg", quality),
+          );
+          if (!blob) continue;
+          const dataUrl = await fileToDataUrl(blob);
+          frames.push({ blob, dataUrl, timeSec: t });
+        }
+      } catch (e) {
+        cleanup();
+        resolve({ ok: false, error: e instanceof Error ? e.message : "frame-irrotus epaonnistui" });
+        return;
+      }
+
+      cleanup();
+      if (frames.length === 0) {
+        resolve({ ok: false, error: "Yhtaan framea ei saatu irrotettua" });
+        return;
+      }
+      resolve({ ok: true, frames, duration });
+    };
+  });
+}
