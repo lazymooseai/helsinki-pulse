@@ -17,7 +17,7 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-const SOURCE_URL = "https://www.finavia.fi/fi/lentoasemat/helsinki-vantaa/lennot?tab=arr";
+const SOURCE_BASE = "https://www.finavia.fi/fi/lentoasemat/helsinki-vantaa/lennot";
 const WINDOW_MS = 2 * 60 * 60 * 1000;
 const HELSINKI_TIMEZONE = "Europe/Helsinki";
 const CACHE_TTL_MS = 60 * 1000;
@@ -220,6 +220,14 @@ function parseMarkdownFlights(md: string): RawFlight[] {
   }
 
   return flights;
+}
+
+function helsinkiDateString(now: Date): string {
+  // Palauttaa YYYY-MM-DD Helsingin aikavyöhykkeellä
+  const fmt = new Intl.DateTimeFormat("en-CA", {
+    timeZone: HELSINKI_TIMEZONE, year: "numeric", month: "2-digit", day: "2-digit",
+  });
+  return fmt.format(now);
 }
 
 Deno.serve(async (req) => {
