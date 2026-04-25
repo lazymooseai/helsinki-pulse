@@ -25,15 +25,32 @@ Lue numerot tarkasti. Jos jotain lukua ei nay tai et ole varma, jata se nulliksi
 Tolpan nimi on aina pakollinen — jos et nae sita, kayta "Tuntematon".
 Anna confidence 0..1 sen mukaan kuinka selkeasti nait luvut.`;
 
+const GEMINI_MODEL = "gemini-2.5-flash";
+const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`;
+
+const RESPONSE_SCHEMA = {
+  type: "OBJECT",
+  properties: {
+    tolppa: { type: "STRING", description: "Tolpan nimi suomeksi" },
+    k_now: { type: "INTEGER", nullable: true, description: "K+ kysynta nyt" },
+    t_now: { type: "INTEGER", nullable: true, description: "T+ tarjonta nyt" },
+    k_30: { type: "INTEGER", nullable: true, description: "K-30 kysynta 30min" },
+    t_30: { type: "INTEGER", nullable: true, description: "T-30 tarjonta 30min" },
+    confidence: { type: "NUMBER", description: "0..1" },
+    raw_text: { type: "STRING", description: "Kaikki kuvasta luettu teksti" },
+  },
+  required: ["tolppa", "confidence"],
+};
+
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
   }
 
   try {
-    const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
-    if (!LOVABLE_API_KEY) {
-      return new Response(JSON.stringify({ error: "LOVABLE_API_KEY puuttuu" }), {
+    const GEMINI_API_KEY = Deno.env.get("GEMINI_API_KEY");
+    if (!GEMINI_API_KEY) {
+      return new Response(JSON.stringify({ error: "GEMINI_API_KEY puuttuu" }), {
         status: 500,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
@@ -47,66 +64,53 @@ Deno.serve(async (req: Request) => {
       });
     }
 
-    const aiRes = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+    // Erota mime + base64 data:image/jpeg;base64,XXXX -muodosta
+    const match = image.match(/^data:(image\/[a-zA-Z+.-]+);base64,(.+)$/);
+    if (!match) {
+      return new Response(JSON.stringify({ error: "Virheellinen data URL" }), {
+        status: 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+    const mimeType = match[1];
+    const base64Data = match[2];
+
+    const aiRes = await fetch(`${GEMINI_URL}?key=${GEMINI_API_KEY}`, {
       method: "POST",
-      headers: {
-        Authorization: `Bearer ${LOVABLE_API_KEY}`,
-        "Content-Type": "application/json",
-      },
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        model: "google/gemini-2.5-flash",
-        messages: [
-          { role: "system", content: SYSTEM_PROMPT },
+        systemInstruction: { parts: [{ text: SYSTEM_PROMPT }] },
+        contents: [
           {
             role: "user",
-            content: [
-              { type: "text", text: "Lue luvut talta valityslaitteen naytön kuvalta." },
-              { type: "image_url", image_url: { url: image } },
+            parts: [
+              { text: "Lue luvut talta valityslaitteen naytön kuvalta." },
+              { inlineData: { mimeType, data: base64Data } },
             ],
           },
         ],
-        tools: [
-          {
-            type: "function",
-            function: {
-              name: "report_dispatch_numbers",
-              description: "Palauttaa naytölta luetut K/T-luvut.",
-              parameters: {
-                type: "object",
-                properties: {
-                  tolppa: { type: "string", description: "Tolpan nimi suomeksi" },
-                  k_now: { type: ["integer", "null"], description: "K+ kysynta nyt" },
-                  t_now: { type: ["integer", "null"], description: "T+ tarjonta nyt" },
-                  k_30: { type: ["integer", "null"], description: "K-30 kysynta 30min" },
-                  t_30: { type: ["integer", "null"], description: "T-30 tarjonta 30min" },
-                  confidence: { type: "number", description: "0..1" },
-                  raw_text: { type: "string", description: "Kaikki kuvasta luettu teksti" },
-                },
-                required: ["tolppa", "confidence"],
-                additionalProperties: false,
-              },
-            },
-          },
-        ],
-        tool_choice: { type: "function", function: { name: "report_dispatch_numbers" } },
+        generationConfig: {
+          responseMimeType: "application/json",
+          responseSchema: RESPONSE_SCHEMA,
+        },
       }),
     });
 
     if (!aiRes.ok) {
       if (aiRes.status === 429) {
-        return new Response(JSON.stringify({ error: "AI-rate-limit ylittyi, yrita hetken paasta uudelleen" }), {
+        return new Response(JSON.stringify({ error: "Gemini-rate-limit ylittyi (ilmainen taso: ~10/min, 250/pv). Yrita hetken paasta." }), {
           status: 429,
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
-      if (aiRes.status === 402) {
-        return new Response(JSON.stringify({ error: "Lovable AI -krediitit loppu, lisaa workspaceen" }), {
-          status: 402,
+      if (aiRes.status === 401 || aiRes.status === 403) {
+        return new Response(JSON.stringify({ error: "GEMINI_API_KEY virheellinen tai ei oikeuksia" }), {
+          status: aiRes.status,
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
       const txt = await aiRes.text();
-      console.error("AI gateway error", aiRes.status, txt);
+      console.error("Gemini API error", aiRes.status, txt);
       return new Response(JSON.stringify({ error: "AI-luenta epaonnistui" }), {
         status: 500,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -114,16 +118,16 @@ Deno.serve(async (req: Request) => {
     }
 
     const data = await aiRes.json();
-    const toolCall = data?.choices?.[0]?.message?.tool_calls?.[0];
-    if (!toolCall?.function?.arguments) {
-      console.error("Ei tool_callia vastauksessa", JSON.stringify(data).slice(0, 500));
+    const jsonText = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+    if (!jsonText) {
+      console.error("Ei JSON-vastausta", JSON.stringify(data).slice(0, 500));
       return new Response(JSON.stringify({ error: "AI ei pystynyt lukemaan kuvaa" }), {
         status: 422,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
-    const parsed = JSON.parse(toolCall.function.arguments);
+    const parsed = JSON.parse(jsonText);
     return new Response(JSON.stringify(parsed), {
       status: 200,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
