@@ -29,45 +29,49 @@ interface ParsedAlert {
 // HSL avoin REST API (service-alerts) - ei vaadi avainta
 // ---------------------------------------------------------------------------
 
-async function fetchViaHslOpenApi(): Promise<ParsedAlert[]> {
-  // HSL tarjoaa hairiot myos yksinkertaisena JSON-endpointina
+async function fetchViaDigitransit(): Promise<ParsedAlert[]> {
+  // Digitransit GraphQL - hsl router. Toimii ilman avainta julkisille kyselyille,
+  // mutta voi rate-limitata. Jos pettaa, palautamme tyhjan listan.
+  const query = `{
+    alerts(feeds: ["HSL"]) {
+      id
+      alertHeaderText
+      alertDescriptionText
+      alertSeverityLevel
+      effectiveStartDate
+      effectiveEndDate
+    }
+  }`;
+
   const res = await fetch(
-    "https://api.hsl.fi/v1/disruptions?lang=fi",
+    "https://api.digitransit.fi/routing/v2/hsl/gtfs/v1",
     {
-      headers: { Accept: "application/json" },
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json",
+      },
+      body: JSON.stringify({ query }),
       signal: AbortSignal.timeout(8000),
     }
   );
 
   if (!res.ok) {
-    throw new Error(`HSL Open API error: ${res.status}`);
+    throw new Error(`Digitransit error: ${res.status}`);
   }
 
-  const disruptions = await res.json();
+  const json = await res.json();
+  const alerts = json?.data?.alerts ?? [];
+  if (!Array.isArray(alerts)) return [];
 
-  // HSL disruptions API rakenne: array of { id, title, description, validFrom, validTo }
-  if (!Array.isArray(disruptions)) return [];
-
-  const now = Math.floor(Date.now() / 1000);
-
-  return disruptions
-    .filter((d: any) => {
-      // Suodata vain aktiiviset hairiot
-      const end = d.validTo ? Math.floor(new Date(d.validTo).getTime() / 1000) : now + 3600;
-      return end > now;
-    })
-    .map((d: any, i: number) => ({
-      id: d.id || `hsl-open-${i}`,
-      alertHeaderText: d.title?.fi || d.title?.en || "HSL-hairio",
-      alertDescriptionText: d.description?.fi || d.description?.en || "",
-      alertSeverityLevel: d.severity || "WARNING",
-      effectiveStartDate: d.validFrom
-        ? Math.floor(new Date(d.validFrom).getTime() / 1000)
-        : now,
-      effectiveEndDate: d.validTo
-        ? Math.floor(new Date(d.validTo).getTime() / 1000)
-        : now + 3600,
-    }));
+  return alerts.map((a: any, i: number) => ({
+    id: a.id || `hsl-${i}`,
+    alertHeaderText: a.alertHeaderText || "HSL-hairio",
+    alertDescriptionText: a.alertDescriptionText || "",
+    alertSeverityLevel: a.alertSeverityLevel || "WARNING",
+    effectiveStartDate: a.effectiveStartDate || 0,
+    effectiveEndDate: a.effectiveEndDate || 0,
+  }));
 }
 
 // ---------------------------------------------------------------------------
@@ -83,10 +87,10 @@ Deno.serve(async (req) => {
     let alerts: ParsedAlert[] = [];
 
     try {
-      alerts = await fetchViaHslOpenApi();
-      console.log(`HSL Open API: ${alerts.length} hairioita`);
+      alerts = await fetchViaDigitransit();
+      console.log(`Digitransit: ${alerts.length} hairioita`);
     } catch (e) {
-      console.warn("HSL Open API epaonnistui:", e);
+      console.warn("Digitransit epaonnistui:", e instanceof Error ? e.message : e);
     }
 
     // Suodata vanhat hairiot pois
