@@ -166,10 +166,14 @@ export interface VideoFrame {
   timeSec: number;
 }
 
+export type ExtractFramesResult =
+  | { ok: true; frames: VideoFrame[]; duration: number; error?: undefined }
+  | { ok: false; error: string; frames?: undefined; duration?: undefined };
+
 export async function extractVideoFrames(
   file: File | Blob,
   opts: { frameCount?: number; maxDurationSec?: number; quality?: number } = {},
-): Promise<{ ok: true; frames: VideoFrame[]; duration: number } | { ok: false; error: string }> {
+): Promise<ExtractFramesResult> {
   const frameCount = opts.frameCount ?? 4;
   const maxDurationSec = opts.maxDurationSec ?? 30;
   const quality = opts.quality ?? 0.85;
