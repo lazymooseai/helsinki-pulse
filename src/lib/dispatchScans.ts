@@ -157,6 +157,36 @@ export function fileToDataUrl(file: File | Blob): Promise<string> {
 }
 
 /**
+ * Lukee kuvan ja koodaa sen uudelleen JPEG:ksi canvasilla.
+ * Tarpeen koska Gemini ei tue HEIC/DNG/RAW-tyyppeja, mutta selain
+ * osaa silti dekoodata monet niista <img>-tagilla.
+ * Skaala max 1600px pitkimmalle sivulle, jotta payload pysyy pienena.
+ */
+export async function fileToJpegDataUrl(file: File | Blob, maxDim = 1600, quality = 0.9): Promise<string> {
+  const objectUrl = URL.createObjectURL(file);
+  try {
+    const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+      const el = new Image();
+      el.onload = () => resolve(el);
+      el.onerror = () => reject(new Error("Selain ei osaa avata tata kuvatyyppia (esim. HEIC/DNG). Ota kuva JPEG:na."));
+      el.src = objectUrl;
+    });
+    const scale = Math.min(1, maxDim / Math.max(img.naturalWidth, img.naturalHeight));
+    const w = Math.max(1, Math.round(img.naturalWidth * scale));
+    const h = Math.max(1, Math.round(img.naturalHeight * scale));
+    const canvas = document.createElement("canvas");
+    canvas.width = w;
+    canvas.height = h;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) throw new Error("Canvas-konteksti ei toimi");
+    ctx.drawImage(img, 0, 0, w, h);
+    return canvas.toDataURL("image/jpeg", quality);
+  } finally {
+    URL.revokeObjectURL(objectUrl);
+  }
+}
+
+/**
  * Pura videosta tasaisin valein N avainkehysta JPEG-blob+dataUrl-muodossa.
  * Tarkistaa ensin keston (max sallittu sekunteina).
  */
