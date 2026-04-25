@@ -9,7 +9,7 @@
  */
 
 import { useRef, useState } from "react";
-import { Camera, Upload, Check, X, Loader2, Image as ImageIcon } from "lucide-react";
+import { Camera, Upload, Check, X, Loader2, Video as VideoIcon } from "lucide-react";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -18,6 +18,7 @@ import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import {
+  extractVideoFrames,
   fileToDataUrl,
   insertScan,
   runOcr,
@@ -34,6 +35,9 @@ interface Props {
 type Stage = "capture" | "analyzing" | "review";
 
 const numField = (v: number | null) => (v === null || v === undefined ? "" : String(v));
+const MAX_VIDEO_SEC = 30;
+const MAX_VIDEO_MB = 50;
+const MAX_IMAGE_MB = 10;
 
 const DispatchScanner = ({ open, onOpenChange, onSaved }: Props) => {
   const [stage, setStage] = useState<Stage>("capture");
@@ -52,6 +56,9 @@ const DispatchScanner = ({ open, onOpenChange, onSaved }: Props) => {
 
   const cameraRef = useRef<HTMLInputElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  const videoCamRef = useRef<HTMLInputElement>(null);
+  const videoFileRef = useRef<HTMLInputElement>(null);
+  const [analyzeNote, setAnalyzeNote] = useState<string>("");
 
   const reset = () => {
     setStage("capture");
@@ -73,12 +80,13 @@ const DispatchScanner = ({ open, onOpenChange, onSaved }: Props) => {
       toast.error("Vain kuvatiedostot kelpaavat");
       return;
     }
-    if (file.size > 10 * 1024 * 1024) {
-      toast.error("Kuva on liian iso (max 10 MB)");
+    if (file.size > MAX_IMAGE_MB * 1024 * 1024) {
+      toast.error(`Kuva on liian iso (max ${MAX_IMAGE_MB} MB)`);
       return;
     }
     setImageBlob(file);
     setStage("analyzing");
+    setAnalyzeNote("Gemini AI lukee numeroita...");
     try {
       const dataUrl = await fileToDataUrl(file);
       setImageDataUrl(dataUrl);
@@ -100,6 +108,69 @@ const DispatchScanner = ({ open, onOpenChange, onSaved }: Props) => {
       setStage("review");
     } catch (e) {
       toast.error("Kuvan kasittely epaonnistui");
+      setStage("capture");
+    }
+  };
+
+  const handleVideoPicked = async (file: File | undefined) => {
+    if (!file) return;
+    if (!file.type.startsWith("video/")) {
+      toast.error("Vain videotiedostot kelpaavat");
+      return;
+    }
+    if (file.size > MAX_VIDEO_MB * 1024 * 1024) {
+      toast.error(`Video on liian iso (max ${MAX_VIDEO_MB} MB)`);
+      return;
+    }
+    setStage("analyzing");
+    setAnalyzeNote("Puretaan videon avainkehyksia...");
+    try {
+      const ext = await extractVideoFrames(file, { frameCount: 4, maxDurationSec: MAX_VIDEO_SEC });
+      if (!ext.ok) {
+        toast.error(ext.error);
+        setStage("capture");
+        return;
+      }
+      // Esikatselu: nayta ensimmainen frame heti
+      setImageDataUrl(ext.frames[0].dataUrl);
+      setAnalyzeNote(`AI lukee ${ext.frames.length} avainkehysta videosta...`);
+
+      // Aja OCR jokaiselle framelle, valitse korkein confidence
+      const results = await Promise.all(ext.frames.map((f) => runOcr(f.dataUrl)));
+      let bestIdx = -1;
+      let bestConf = -1;
+      let bestRes: OcrResult | null = null;
+      results.forEach((r, i) => {
+        if (r.ok && r.result.confidence > bestConf) {
+          bestConf = r.result.confidence;
+          bestRes = r.result;
+          bestIdx = i;
+        }
+      });
+
+      if (!bestRes || bestIdx < 0) {
+        const firstErr = results.find((r) => !r.ok);
+        toast.error("AI-luenta epaonnistui: " + (firstErr && !firstErr.ok ? firstErr.error : "tuntematon"));
+        setStage("capture");
+        return;
+      }
+
+      // Tallenna paras frame still-kuvana (yhteensopiva nykyisen kuva-Storage-rakenteen kanssa)
+      const bestFrame = ext.frames[bestIdx];
+      setImageBlob(bestFrame.blob);
+      setImageDataUrl(bestFrame.dataUrl);
+      setOcr(bestRes);
+      setForm({
+        tolppa: bestRes.tolppa ?? "",
+        k_now: numField(bestRes.k_now),
+        t_now: numField(bestRes.t_now),
+        k_30: numField(bestRes.k_30),
+        t_30: numField(bestRes.t_30),
+        notes: `Video ${ext.duration.toFixed(1)}s, paras frame @ ${bestFrame.timeSec.toFixed(1)}s`,
+      });
+      setStage("review");
+    } catch (e) {
+      toast.error("Videon kasittely epaonnistui");
       setStage("capture");
     }
   };
@@ -182,6 +253,21 @@ const DispatchScanner = ({ open, onOpenChange, onSaved }: Props) => {
               className="hidden"
               onChange={(e) => handlePicked(e.target.files?.[0])}
             />
+            <input
+              ref={videoCamRef}
+              type="file"
+              accept="video/*"
+              capture="environment"
+              className="hidden"
+              onChange={(e) => handleVideoPicked(e.target.files?.[0])}
+            />
+            <input
+              ref={videoFileRef}
+              type="file"
+              accept="video/*"
+              className="hidden"
+              onChange={(e) => handleVideoPicked(e.target.files?.[0])}
+            />
 
             <Button
               onClick={() => cameraRef.current?.click()}
@@ -200,6 +286,29 @@ const DispatchScanner = ({ open, onOpenChange, onSaved }: Props) => {
               Lisaa kuvatiedosto
             </Button>
 
+            <div className="pt-2 border-t border-slate-700" />
+            <p className="text-xs text-muted-foreground text-center">
+              Video (max {MAX_VIDEO_SEC}s) — AI poimii parhaan kehyksen
+            </p>
+
+            <Button
+              onClick={() => videoCamRef.current?.click()}
+              variant="outline"
+              className="w-full h-16 text-lg font-bold border-slate-600"
+            >
+              <VideoIcon className="h-6 w-6 mr-3" />
+              Kuvaa video kameralla
+            </Button>
+
+            <Button
+              onClick={() => videoFileRef.current?.click()}
+              variant="outline"
+              className="w-full h-16 text-lg font-bold border-slate-600"
+            >
+              <Upload className="h-6 w-6 mr-3" />
+              Lisaa videotiedosto
+            </Button>
+
             <Button
               onClick={() => {
                 setStage("review");
@@ -216,7 +325,7 @@ const DispatchScanner = ({ open, onOpenChange, onSaved }: Props) => {
         {stage === "analyzing" && (
           <div className="mt-10 flex flex-col items-center justify-center gap-4 py-10">
             <Loader2 className="h-16 w-16 animate-spin text-primary" />
-            <p className="text-lg font-bold">Gemini AI lukee numeroita...</p>
+            <p className="text-lg font-bold text-center px-4">{analyzeNote || "Gemini AI lukee numeroita..."}</p>
             {imageDataUrl && (
               <img src={imageDataUrl} alt="Esikatselu" className="max-h-64 rounded-lg border border-slate-700" />
             )}
