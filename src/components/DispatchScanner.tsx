@@ -28,6 +28,7 @@ import {
   runPdfOcr,
   type OcrResult,
 } from "@/lib/dispatchScans";
+import { isValidTolppaName, findTolppaSmart } from "@/lib/tolppaLocations";
 
 interface Props {
   open: boolean;
@@ -243,9 +244,18 @@ const DispatchScanner = ({ open, onOpenChange, onSaved }: Props) => {
   };
 
   const handleSave = async () => {
-    if (!form.tolppa.trim()) {
+    const tolppaName = form.tolppa.trim();
+    if (!tolppaName) {
       toast.error("Tolpan nimi on pakollinen");
       return;
+    }
+    if (!isValidTolppaName(tolppaName)) {
+      toast.error("Tolpan nimi näyttää virheelliseltä. Tarkista ja korjaa käsin.");
+      return;
+    }
+    // Varoitus jos tolppa ei matchaa tunnettua sijaintia (mutta sallitaan tallennus)
+    if (!findTolppaSmart(tolppaName)) {
+      toast.warning(`Tolppaa "${tolppaName}" ei tunnistettu — etäisyys/vyöhyke ei näy. Tallennetaan silti.`);
     }
     setSaving(true);
 
