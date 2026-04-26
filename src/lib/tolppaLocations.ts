@@ -126,6 +126,54 @@ export function findTolppa(name: string): TolppaLocation | undefined {
   return undefined;
 }
 
+/**
+ * Token-pohjainen haku — jakaa hakunimen sanoiksi ja katsoo löytyykö
+ * jokin tokeni tolpan nimestä/aliaksesta. Esim "B96 SIMONKENTTÄ" → "simonkentta" → Simonkenttä.
+ * Filtteroi pois lyhyet (≤2 merkkiä) ja pelkät numerot/koodit (B96, P3 jne.).
+ */
+export function findTolppaSmart(name: string): TolppaLocation | undefined {
+  const direct = findTolppa(name);
+  if (direct) return direct;
+  const n = normalize(name);
+  if (!n) return undefined;
+  const tokens = n.split(" ").filter((t) => t.length >= 4 && !/^[a-z]?\d+$/.test(t));
+  if (tokens.length === 0) return undefined;
+  // Etsi pisin matchaava tokeni (Simonkenttä > Kamppi jos molemmat osuvat)
+  let best: { loc: TolppaLocation; len: number } | undefined;
+  for (const t of TOLPAT) {
+    const candidates = [normalize(t.name), ...(t.aliases ?? []).map(normalize)];
+    for (const c of candidates) {
+      for (const tok of tokens) {
+        if (c.includes(tok) || tok.includes(c)) {
+          const len = Math.min(c.length, tok.length);
+          if (!best || len > best.len) best = { loc: t, len };
+        }
+      }
+    }
+  }
+  return best?.loc;
+}
+
+/**
+ * Tarkistaa onko merkkijono uskottava tolpan nimi.
+ * Hylkää LLM-roskan: markdown, päivämäärä-otsikot, "Ryhmä", liian lyhyet.
+ */
+export function isValidTolppaName(name: string): boolean {
+  if (!name) return false;
+  const trimmed = name.trim();
+  if (trimmed.length < 3 || trimmed.length > 80) return false;
+  // Markdown / metadata
+  if (/[*_`#]/.test(trimmed)) return false;
+  if (/päivämäärä|paivamaara|aika:|pvm:|date:|time:/i.test(trimmed)) return false;
+  // Pelkkä "Ryhmä" tai "Tolppa" tms. yleissana ilman omaa nimeä
+  const norm = normalize(trimmed);
+  const banned = new Set(["ryhma", "tolppa", "asema", "tuntematon", "unknown", "n a", "na"]);
+  if (banned.has(norm)) return false;
+  // Vähintään yksi kirjainsekvenssi (≥3 kirjainta)
+  if (!/[a-zA-ZåäöÅÄÖ]{3,}/.test(trimmed)) return false;
+  return true;
+}
+
 /** Haversine etäisyys kilometreinä. */
 export function distanceKm(lat1: number, lon1: number, lat2: number, lon2: number): number {
   const R = 6371;
