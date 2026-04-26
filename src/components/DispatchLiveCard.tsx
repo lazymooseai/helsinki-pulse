@@ -51,6 +51,7 @@ import {
   type Zone,
 } from "@/lib/tolppaLocations";
 import { useGeolocation } from "@/hooks/useGeolocation";
+import { listUpcomingBookings, type PreBooking } from "@/lib/prebookings";
 
 // ---------- apurit ----------
 
@@ -95,13 +96,15 @@ interface ScanWithLocation {
 const DispatchLiveCard = () => {
   const [latest, setLatest] = useState<DispatchScan[]>([]);
   const [history, setHistory] = useState<DispatchScan[]>([]);
+  const [upcomingBookings, setUpcomingBookings] = useState<PreBooking[]>([]);
   const [loading, setLoading] = useState(true);
   const geo = useGeolocation();
 
   const refresh = async () => {
-    const [latestMap, hist] = await Promise.all([
+    const [latestMap, hist, ub] = await Promise.all([
       getLatestPerTolppa(24 * 60), // 24h ikkuna
       listScansSince(14),
+      listUpcomingBookings(0),
     ]);
     setLatest(
       Array.from(latestMap.values()).sort(
@@ -109,6 +112,7 @@ const DispatchLiveCard = () => {
       ),
     );
     setHistory(hist);
+    setUpcomingBookings(ub);
     setLoading(false);
   };
 
@@ -119,6 +123,11 @@ const DispatchLiveCard = () => {
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "dispatch_scans" },
+        () => refresh(),
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "pre_bookings" },
         () => refresh(),
       )
       .subscribe();
@@ -197,7 +206,13 @@ const DispatchLiveCard = () => {
             <ZonesView enriched={enriched} />
           </TabsContent>
           <TabsContent value="recommend" className="mt-3">
-            <RecommendView enriched={enriched} hasLocation={geo.lat !== null} />
+            <RecommendView
+              enriched={enriched}
+              hasLocation={geo.lat !== null}
+              upcomingBookings={upcomingBookings}
+              myLat={geo.lat}
+              myLon={geo.lon}
+            />
           </TabsContent>
           <TabsContent value="heatmap" className="mt-3">
             <HeatmapView history={history} />
