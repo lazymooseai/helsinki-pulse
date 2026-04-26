@@ -2,9 +2,21 @@ import { ShipArrival, HarborPaxResponse, AverioShip } from "./types";
 import { supabase } from "@/integrations/supabase/client";
 
 export async function fetchHarborPaxEstimates(): Promise<HarborPaxResponse> {
-  const { data, error } = await supabase.functions.invoke('fetch-harbor-pax');
-  if (error) throw new Error(`Harbor pax fetch failed: ${error.message}`);
-  return data as HarborPaxResponse;
+  try {
+    const { data, error } = await supabase.functions.invoke('fetch-harbor-pax');
+    if (error) {
+      console.warn('Harbor pax edge function virhe (kaytetaan tyhjaa fallbackia):', error.message);
+      return { estimates: {}, ships: [], source: 'fallback', timestamp: new Date().toISOString() } as HarborPaxResponse;
+    }
+    // Edge function voi palauttaa { fallback: true } 5xx-tilanteissa
+    if (data && (data as { fallback?: boolean }).fallback) {
+      return { estimates: {}, ships: [], source: 'fallback', timestamp: new Date().toISOString() } as HarborPaxResponse;
+    }
+    return data as HarborPaxResponse;
+  } catch (e) {
+    console.warn('Harbor pax fetch poikkeus:', e);
+    return { estimates: {}, ships: [], source: 'fallback', timestamp: new Date().toISOString() } as HarborPaxResponse;
+  }
 }
 
 /** Convert Averio arrival time "HH:MM DD.MM.YYYY" to just "HH:MM" */
