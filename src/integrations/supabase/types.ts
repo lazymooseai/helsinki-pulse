@@ -137,6 +137,45 @@ export type Database = {
         }
         Relationships: []
       }
+      pre_bookings: {
+        Row: {
+          created_at: string
+          id: string
+          notes: string | null
+          ocr_confidence: number | null
+          pickup_at: string
+          raw_text: string | null
+          scanned_by_device: string | null
+          source: string
+          tolppa: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          notes?: string | null
+          ocr_confidence?: number | null
+          pickup_at: string
+          raw_text?: string | null
+          scanned_by_device?: string | null
+          source?: string
+          tolppa: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          notes?: string | null
+          ocr_confidence?: number | null
+          pickup_at?: string
+          raw_text?: string | null
+          scanned_by_device?: string | null
+          source?: string
+          tolppa?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       taxi_trips: {
         Row: {
           created_at: string
