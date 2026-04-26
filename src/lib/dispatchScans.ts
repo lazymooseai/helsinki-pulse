@@ -7,6 +7,7 @@
  */
 
 import { supabase } from "@/integrations/supabase/client";
+import { findTolppaSmart, isValidTolppaName } from "@/lib/tolppaLocations";
 
 export interface DispatchScan {
   id: string;
@@ -91,7 +92,15 @@ export async function runPdfOcr(pdfDataUrl: string): Promise<OcrCallResult> {
 export function parseTextToOcr(raw: string): OcrCallResult {
   // Jos syöte näyttää HTML:lta, riisu tagit ennen jäsennystä.
   const looksLikeHtml = /<\/?[a-z][\s\S]*?>/i.test(raw) && /<(html|body|div|span|table|p|td|th|li|h\d)\b/i.test(raw);
-  const text = (looksLikeHtml ? htmlToText(raw) : raw).trim();
+  const rawText = (looksLikeHtml ? htmlToText(raw) : raw).trim();
+  // Strippaa markdown-merkit (** _ ` # >) jotta "**Päivämäärä:**" ei pääse tolpan nimeksi.
+  const text = rawText
+    .replace(/^\s{0,3}#{1,6}\s+/gm, "")
+    .replace(/\*\*/g, "")
+    .replace(/__/g, "")
+    .replace(/`+/g, "")
+    .replace(/^\s*>\s?/gm, "")
+    .trim();
   if (!text) return { ok: false, error: "Tiedosto on tyhja" };
 
   // 1. JSON-yritys
@@ -131,39 +140,64 @@ export function parseTextToOcr(raw: string): OcrCallResult {
   const k_30 = grab(/K\s*[-_]?\s*30\s*[:=]?\s*(\d{1,3})/i);
   const t_30 = grab(/T\s*[-_]?\s*30\s*[:=]?\s*(\d{1,3})/i);
 
-  // 3. Tolpan nimi: ensimmäinen ei-numeerinen rivi tai "tolppa:" -kentta
+  // 3. Tolpan nimi
+  // Hylkäämme metarivit (Päivämäärä, Aika, Kellonaika, Yhteensä, Ryhmä, jne.)
+  const META_RE = /^(päivämäärä|paivamaara|aika|kellonaika|pvm|date|time|yhteens[äa]|ryhm[äa]|kuljettaja|auto|tilaus)\b/i;
+  const isMetaLine = (s: string) => META_RE.test(s.trim()) || /^\d{1,2}[.\/-]\d{1,2}/.test(s.trim());
+
   let tolppa = "";
-  const tolppaMatch = text.match(/(?:tolppa|asema|paikka|station)\s*[:=]\s*([^\n,;]+)/i);
+  // 3a. Eksplisiittinen "tolppa:" / "asema:" / "paikka:" -kentta
+  const tolppaMatch = text.match(/(?:tolppa|asema|paikka|station|sijainti)\s*[:=]\s*([^\n,;]+)/i);
   if (tolppaMatch) {
     tolppa = tolppaMatch[1].trim();
-  } else {
-    // CSV-tyyli: "Pasila,8,3,12,5"
-    const csv = text.split(/[\n;]/)[0].split(",").map((s) => s.trim());
-    if (csv.length >= 2 && csv[0] && !/^\d+$/.test(csv[0])) {
-      tolppa = csv[0];
-      if (k_now === null && csv[1]) {
-        const cn = parseInt(csv[1], 10);
-        const ct = parseInt(csv[2] ?? "", 10);
-        const ck30 = parseInt(csv[3] ?? "", 10);
-        const ct30 = parseInt(csv[4] ?? "", 10);
-        return {
-          ok: true,
-          result: {
-            tolppa: tolppa.slice(0, 100),
-            k_now: Number.isFinite(cn) ? cn : null,
-            t_now: Number.isFinite(ct) ? ct : null,
-            k_30: Number.isFinite(ck30) ? ck30 : null,
-            t_30: Number.isFinite(ct30) ? ct30 : null,
-            confidence: 0.95,
-            raw_text: text.slice(0, 500),
-          },
-        };
+  }
+  // 3b. Etsi tunnettu tolppa MISTÄ TAHANSA tekstistä (smart-haku tunnistaa esim. "Olympiaterminaali")
+  if (!tolppa || !isValidTolppaName(tolppa)) {
+    const lines = text.split(/\n/).map((l) => l.trim()).filter(Boolean);
+    for (const line of lines) {
+      if (isMetaLine(line)) continue;
+      const hit = findTolppaSmart(line);
+      if (hit) {
+        tolppa = hit.name;
+        break;
       }
-    } else {
-      // Ensimmainen rivi joka ei ole pelkkia numeroita/erotinmerkkeja
-      const lines = text.split(/\n/).map((l) => l.trim()).filter(Boolean);
-      tolppa = lines.find((l) => /[a-zA-ZäöåÄÖÅ]/.test(l) && l.length <= 60) ?? "Tuntematon";
     }
+  }
+  // 3c. CSV-tyyli: "Pasila,8,3,12,5" (vain jos ekarivi ei ole metaa)
+  if (!tolppa) {
+    const firstLine = text.split(/[\n;]/)[0] ?? "";
+    if (!isMetaLine(firstLine)) {
+      const csv = firstLine.split(",").map((s) => s.trim());
+      if (csv.length >= 2 && csv[0] && !/^\d+$/.test(csv[0]) && isValidTolppaName(csv[0])) {
+        tolppa = csv[0];
+        if (k_now === null && csv[1]) {
+          const cn = parseInt(csv[1], 10);
+          const ct = parseInt(csv[2] ?? "", 10);
+          const ck30 = parseInt(csv[3] ?? "", 10);
+          const ct30 = parseInt(csv[4] ?? "", 10);
+          return {
+            ok: true,
+            result: {
+              tolppa: tolppa.slice(0, 100),
+              k_now: Number.isFinite(cn) ? cn : null,
+              t_now: Number.isFinite(ct) ? ct : null,
+              k_30: Number.isFinite(ck30) ? ck30 : null,
+              t_30: Number.isFinite(ct30) ? ct30 : null,
+              confidence: 0.95,
+              raw_text: text.slice(0, 500),
+            },
+          };
+        }
+      }
+    }
+  }
+  // 3d. Viimeinen oljenkorsi: ensimmäinen ei-meta, ei-numeerinen, lyhyt rivi
+  if (!tolppa) {
+    const lines = text.split(/\n/).map((l) => l.trim()).filter(Boolean);
+    const candidate = lines.find(
+      (l) => !isMetaLine(l) && /[a-zA-ZäöåÄÖÅ]/.test(l) && l.length <= 60 && isValidTolppaName(l),
+    );
+    if (candidate) tolppa = candidate;
   }
 
   // Jos parseri ei löytänyt mitään hyödyllistä, palauta selkeä virhe.
