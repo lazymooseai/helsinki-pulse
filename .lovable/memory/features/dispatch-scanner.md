@@ -1,39 +1,43 @@
 ---
 name: dispatch-scanner
-description: Valityslaitteen naytön kameraskannaus + AI-OCR (Gemini 2.5 Flash) → live K/T-luvut tolppakohtaisesti
+description: Valityslaitteen naytön kameraskannaus + AI-OCR + sijaintitietoinen tolppa-dashboard (lähimmät, vyöhyke, suositus, heatmap)
 type: feature
 ---
 
 ## Tarkoitus
-Kuljettaja kuvaa Taksi Helsinki -valityslaitteen naytön puhelimellaan TAI lataa screenshotin. Gemini 2.5 Flash lukee K+/T+/K-30/T-30 luvut + tolpan nimen. Data tallennetaan `dispatch_scans`-tauluun ja nakyy reaaliajassa dashboardilla.
+Kuljettaja syöttää tolppadataa neljällä tavalla: (1) kuva valityslaitteen naytöstä, (2) video, (3) PDF-raportti, (4) TXT/CSV/JSON/HTML-tiedosto. Gemini 2.5 Flash lukee K+/T+/K-30/T-30 + tolpan nimen kuvista ja PDF:stä. HTML/TXT/CSV jäsennetään lokaalisti selaimessa (nopeaa). Data nakyy reaaliajassa sijaintitietoisessa dashboardissa.
 
 ## Tietokanta: dispatch_scans
-- tolppa (TEXT, pakollinen), k_now, t_now, k_30, t_30 (INT, nullable)
-- raw_image_url (Storage), ocr_confidence (0-1), ocr_raw_text, notes
-- is_verified (kuljettaja vahvistanut), source ("camera" | "manual"), scanned_at
-- RLS: julkinen CRUD (sama kuvio kuin events/taxi_trips)
-- Realtime: REPLICA IDENTITY FULL + supabase_realtime publication
-- Indexit: scanned_at DESC, (tolppa, scanned_at DESC)
+- tolppa, k_now, t_now, k_30, t_30, raw_image_url, ocr_confidence, ocr_raw_text, notes
+- is_verified, source ("camera" | "manual" | "text" | "pdf"), scanned_at
+- RLS: julkinen CRUD. Realtime: REPLICA IDENTITY FULL + supabase_realtime publication
 
-## Storage: dispatch-scans bucket
-- Julkinen luku/kirjoitus, tiedostopolut: `YYYY-MM-DD/{uuid}.jpg`
+## Storage: dispatch-scans bucket (julkinen)
 
 ## Edge function: scan-dispatch
-- POST { image: "data:image/jpeg;base64,..." } → { tolppa, k_now, t_now, k_30, t_30, confidence, raw_text }
-- Kayttaa Lovable AI Gateway: `google/gemini-2.5-flash` + tool calling (`report_dispatch_numbers`)
-- Hoitaa 429/402 -virheet asianmukaisesti
+- POST { image | pdf } → { tolppa, k_now, t_now, k_30, t_30, confidence, raw_text }
+- Lovable AI Gateway: `google/gemini-2.5-flash` + tool calling
 
 ## Komponentit
-- `src/lib/dispatchScans.ts` — runOcr, uploadScanImage, insertScan, listRecentScans, getLatestPerTolppa
-- `src/components/DispatchScanner.tsx` — Sheet-pohjainen UI: kuva (kamera/tiedosto) + video (kamera/tiedosto, max 30s/50MB) + esikatselu + AI-luenta + manuaalinen korjaus + tallennus
-- `src/components/DispatchLiveCard.tsx` — dashboard-kortti, viimeisimmat skannaukset per tolppa (max 120 min), realtime-kanava, signaali (KYSYNTA/TASAPAINO/YLITARJONTA = K-T diff)
+- `src/lib/dispatchScans.ts` — runOcr, runPdfOcr, parseTextToOcr (TXT/CSV/JSON), htmlToText, fileToJpegDataUrl, extractVideoFrames, listScansSince (heatmap-data)
+- `src/lib/tolppaLocations.ts` — TOLPAT (50+ tunnetua tolppaa Hki/Espoo/Vantaa), findTolppa (alias-haku), distanceKm (Haversine), Zone-luokitus
+- `src/hooks/useGeolocation.ts` — selain GPS + manuaalivalinta-fallback (localStorage)
+- `src/components/DispatchScanner.tsx` — Sheet UI: kuva/video/dokumentti + esikatselu + AI-luenta + manuaali korjaus
+- `src/components/DispatchLiveCard.tsx` — 4 tabia:
+  - **Lähimmät**: top 5 lähintä tolppaa GPS:stä + etäisyys (km)
+  - **Vyöhyke**: yhteenveto per alue (kesk/itä/länsi/poh, Espoo, Vantaa, lentoasema) + paras tolppa per vyöhyke
+  - **Suositus**: yksi "mene tänne" pisteytyksellä `(K-T)*1.5 + future*0.5 - distanceKm`
+  - **Heatmap**: tunti × tolppa -aggregaatti viim. 14 päivän skannauksista, vyöhykefiltteri
 - `src/components/ScanButton.tsx` — kelluva alanappi avaa DispatchScannerin
 
-## Videoluenta
-- `extractVideoFrames(file, {frameCount:4, maxDurationSec:30})` purkaa videosta tasaisin valein 4 JPEG-kehysta `<video>+<canvas>`-tekniikalla (ei lisariippuvuuksia, toimii selaimessa)
-- Jokainen kehys ajetaan `runOcr`:n lapi (Promise.all), korkeimman `confidence`-arvon framesta otetaan luvut + tallennetaan still-kuvana storageen → schema sailyy samana
-- Rajat: video max 30s + 50MB, kuva max 10MB
+## Sijaintilogiikka
+- GPS oletus, manuaalivalinta fallback (7 vyöhykettä). Tallentuu localStorageen.
+- GPS päivittyy 5 min välein automaattisesti.
+- Tolpat matchataan nimellä + aliaksilla normalisoidulla haulla (lowercase, ilman ääkkösiä, sisältyvyys).
 
-## Tuleva integraatio
-- `getLatestPerTolppa()` palauttaa Mapin → CommandCenter voi lukea livea ja painottaa zone-suosituksia
-- Aikasarja-analyysi: tunti × tolppa → ennusta ruuhkahuiput (samalla kuviolla kuin trip_patterns)
+## Heatmap-väri
+- diff >= 5: vahva vihreä (kuuma)
+- diff 2..4: vihreä
+- diff 0..1: amber
+- diff -3..-1: vaalea punainen
+- diff < -3: punainen (ylitarjonta)
