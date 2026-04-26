@@ -9,7 +9,7 @@
  */
 
 import { useRef, useState } from "react";
-import { Camera, Upload, Check, X, Loader2, Video as VideoIcon } from "lucide-react";
+import { Camera, Upload, Check, X, Loader2, Video as VideoIcon, FileText } from "lucide-react";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -20,8 +20,12 @@ import { toast } from "sonner";
 import {
   extractVideoFrames,
   fileToJpegDataUrl,
+  fileToDataUrl,
+  fileToText,
   insertScan,
+  parseTextToOcr,
   runOcr,
+  runPdfOcr,
   type OcrResult,
 } from "@/lib/dispatchScans";
 
@@ -37,6 +41,8 @@ const numField = (v: number | null) => (v === null || v === undefined ? "" : Str
 const MAX_VIDEO_SEC = 30;
 const MAX_VIDEO_MB = 50;
 const MAX_IMAGE_MB = 20;
+const MAX_TEXT_MB = 2;
+const MAX_PDF_MB = 10;
 
 const DispatchScanner = ({ open, onOpenChange, onSaved }: Props) => {
   const [stage, setStage] = useState<Stage>("capture");
@@ -57,6 +63,7 @@ const DispatchScanner = ({ open, onOpenChange, onSaved }: Props) => {
   const fileRef = useRef<HTMLInputElement>(null);
   const videoCamRef = useRef<HTMLInputElement>(null);
   const videoFileRef = useRef<HTMLInputElement>(null);
+  const docRef = useRef<HTMLInputElement>(null);
   const [analyzeNote, setAnalyzeNote] = useState<string>("");
 
   const reset = () => {
@@ -177,6 +184,64 @@ const DispatchScanner = ({ open, onOpenChange, onSaved }: Props) => {
     }
   };
 
+  /** TXT / CSV / JSON / PDF -tiedoston kasittely. */
+  const handleDocPicked = async (file: File | undefined) => {
+    if (!file) return;
+    const isPdf =
+      file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf");
+    const isText =
+      file.type.startsWith("text/") ||
+      file.type === "application/json" ||
+      /\.(txt|csv|json|md)$/i.test(file.name);
+
+    if (!isPdf && !isText) {
+      toast.error("Tuetut: TXT, CSV, JSON, PDF");
+      return;
+    }
+    const maxMb = isPdf ? MAX_PDF_MB : MAX_TEXT_MB;
+    if (file.size > maxMb * 1024 * 1024) {
+      toast.error(`Tiedosto on liian iso (max ${maxMb} MB)`);
+      return;
+    }
+
+    setStage("analyzing");
+    setImageDataUrl(null);
+    setImageBlob(null);
+
+    try {
+      let res;
+      if (isPdf) {
+        setAnalyzeNote("Gemini AI lukee PDF:aa...");
+        const dataUrl = await fileToDataUrl(file);
+        res = await runPdfOcr(dataUrl);
+      } else {
+        setAnalyzeNote("Jasennetaan tekstia...");
+        const text = await fileToText(file);
+        res = parseTextToOcr(text);
+      }
+
+      if (!res.ok) {
+        toast.error("Luenta epaonnistui: " + res.error);
+        setStage("capture");
+        return;
+      }
+
+      setOcr(res.result);
+      setForm({
+        tolppa: res.result.tolppa ?? "",
+        k_now: numField(res.result.k_now),
+        t_now: numField(res.result.t_now),
+        k_30: numField(res.result.k_30),
+        t_30: numField(res.result.t_30),
+        notes: `Lahde: ${file.name}`,
+      });
+      setStage("review");
+    } catch (e) {
+      toast.error("Tiedoston kasittely epaonnistui");
+      setStage("capture");
+    }
+  };
+
   const handleSave = async () => {
     if (!form.tolppa.trim()) {
       toast.error("Tolpan nimi on pakollinen");
@@ -264,6 +329,13 @@ const DispatchScanner = ({ open, onOpenChange, onSaved }: Props) => {
               className="hidden"
               onChange={(e) => handleVideoPicked(e.target.files?.[0])}
             />
+            <input
+              ref={docRef}
+              type="file"
+              accept=".txt,.csv,.json,.md,.pdf,text/plain,text/csv,application/json,application/pdf"
+              className="hidden"
+              onChange={(e) => handleDocPicked(e.target.files?.[0])}
+            />
 
             <Button
               onClick={() => cameraRef.current?.click()}
@@ -280,6 +352,20 @@ const DispatchScanner = ({ open, onOpenChange, onSaved }: Props) => {
             >
               <Upload className="h-7 w-7 mr-3" />
               Lisaa kuvatiedosto
+            </Button>
+
+            <div className="pt-2 border-t border-slate-700" />
+            <p className="text-xs text-muted-foreground text-center">
+              Tekstidata (nopein) — TXT, CSV, JSON tai PDF
+            </p>
+
+            <Button
+              onClick={() => docRef.current?.click()}
+              variant="outline"
+              className="w-full h-16 text-lg font-bold border-slate-600"
+            >
+              <FileText className="h-6 w-6 mr-3" />
+              Lisaa TXT / CSV / PDF
             </Button>
 
             <div className="pt-2 border-t border-slate-700" />
