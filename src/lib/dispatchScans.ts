@@ -89,7 +89,9 @@ export async function runPdfOcr(pdfDataUrl: string): Promise<OcrCallResult> {
  * - CSV: "Pasila,8,3,12,5"
  */
 export function parseTextToOcr(raw: string): OcrCallResult {
-  const text = raw.trim();
+  // Jos syöte näyttää HTML:lta, riisu tagit ennen jäsennystä.
+  const looksLikeHtml = /<\/?[a-z][\s\S]*?>/i.test(raw) && /<(html|body|div|span|table|p|td|th|li|h\d)\b/i.test(raw);
+  const text = (looksLikeHtml ? htmlToText(raw) : raw).trim();
   if (!text) return { ok: false, error: "Tiedosto on tyhja" };
 
   // 1. JSON-yritys
@@ -180,6 +182,50 @@ export function parseTextToOcr(raw: string): OcrCallResult {
       raw_text: text.slice(0, 500),
     },
   };
+}
+
+/**
+ * Karsii HTML:sta tagit, skriptit ja tyylit → puhdas teksti.
+ * Toimii sekä DOMParserilla (selain) että regex-fallbackilla.
+ */
+export function htmlToText(html: string): string {
+  try {
+    if (typeof DOMParser !== "undefined") {
+      const doc = new DOMParser().parseFromString(html, "text/html");
+      doc.querySelectorAll("script, style, noscript").forEach((el) => el.remove());
+      // Lisää rivinvaihtoja lohkotason elementeille jotta tolppa + luvut erottuvat
+      doc.querySelectorAll("br").forEach((el) => el.replaceWith("\n"));
+      doc
+        .querySelectorAll("p, div, tr, li, h1, h2, h3, h4, h5, h6, td, th")
+        .forEach((el) => el.append("\n"));
+      const txt = doc.body?.textContent ?? doc.documentElement.textContent ?? "";
+      return decodeEntities(txt).replace(/[ \t]+/g, " ").replace(/\n{2,}/g, "\n").trim();
+    }
+  } catch {
+    // fallback alle
+  }
+  return decodeEntities(
+    html
+      .replace(/<(script|style|noscript)[\s\S]*?<\/\1>/gi, " ")
+      .replace(/<br\s*\/?>/gi, "\n")
+      .replace(/<\/(p|div|tr|li|h\d|td|th)>/gi, "\n")
+      .replace(/<[^>]+>/g, " "),
+  )
+    .replace(/[ \t]+/g, " ")
+    .replace(/\n{2,}/g, "\n")
+    .trim();
+}
+
+function decodeEntities(s: string): string {
+  return s
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/gi, "'")
+    .replace(/&#x([0-9a-f]+);/gi, (_, h) => String.fromCodePoint(parseInt(h, 16)))
+    .replace(/&#(\d+);/g, (_, d) => String.fromCodePoint(parseInt(d, 10)));
 }
 
 /** Lue File tekstiksi UTF-8 muodossa. */
