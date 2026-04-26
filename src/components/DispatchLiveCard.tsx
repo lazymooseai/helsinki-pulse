@@ -418,9 +418,15 @@ const ZonesView = ({ enriched }: { enriched: ScanWithLocation[] }) => {
 const RecommendView = ({
   enriched,
   hasLocation,
+  upcomingBookings,
+  myLat,
+  myLon,
 }: {
   enriched: ScanWithLocation[];
   hasLocation: boolean;
+  upcomingBookings: PreBooking[];
+  myLat: number | null;
+  myLon: number | null;
 }) => {
   const ranked = useMemo(() => {
     return [...enriched]
@@ -429,11 +435,32 @@ const RecommendView = ({
       .sort((a, b) => b.score - a.score);
   }, [enriched]);
 
+  // Lasketaan: ennakot 60 min sisaan & ≤ 5 km autosta tai ilman sijaintia kaikki
+  const nearbyBookings = useMemo(() => {
+    const cutoff = Date.now() + 60 * 60_000;
+    return upcomingBookings
+      .filter((b) => new Date(b.pickup_at).getTime() <= cutoff)
+      .map((b) => {
+        const loc = findTolppa(b.tolppa);
+        const dist =
+          loc && myLat !== null && myLon !== null
+            ? distanceKm(myLat, myLon, loc.lat, loc.lon)
+            : null;
+        return { booking: b, location: loc, distanceKm: dist };
+      })
+      .filter((b) => b.distanceKm === null || b.distanceKm <= 5)
+      .sort((a, b) => new Date(a.booking.pickup_at).getTime() - new Date(b.booking.pickup_at).getTime())
+      .slice(0, 5);
+  }, [upcomingBookings, myLat, myLon]);
+
   if (ranked.length === 0) {
     return (
-      <p className="text-xs text-muted-foreground p-3 text-center">
-        Ei riittavaa dataa suositusta varten.
-      </p>
+      <div className="space-y-3">
+        <p className="text-xs text-muted-foreground p-3 text-center">
+          Ei riittavaa dataa suositusta varten.
+        </p>
+        {nearbyBookings.length > 0 && <BookingAlert items={nearbyBookings} />}
+      </div>
     );
   }
 
@@ -442,6 +469,8 @@ const RecommendView = ({
 
   return (
     <div className="space-y-3">
+      {nearbyBookings.length > 0 && <BookingAlert items={nearbyBookings} />}
+
       <div className={`p-4 rounded-lg ${sig.bg} border-2 ${sig.color.replace("text-", "border-")}`}>
         <div className="flex items-center gap-2 mb-2">
           <Target className={`h-5 w-5 ${sig.color}`} />
@@ -482,6 +511,47 @@ const RecommendView = ({
         </div>
         {ranked.slice(1, 5).map((r) => (
           <ScanRow key={r.scan.id} item={r} showDistance compact />
+        ))}
+      </div>
+    </div>
+  );
+};
+
+// ---------- ennakkotilaus-halytys ----------
+
+interface NearbyBooking {
+  booking: PreBooking;
+  location?: TolppaLocation;
+  distanceKm: number | null;
+}
+
+const BookingAlert = ({ items }: { items: NearbyBooking[] }) => {
+  const formatTime = (iso: string) => {
+    const d = new Date(iso);
+    const min = Math.round((d.getTime() - Date.now()) / 60_000);
+    if (min <= 0) return "nyt";
+    if (min < 60) return `${min} min`;
+    return `${Math.floor(min / 60)}h ${min % 60}min`;
+  };
+  return (
+    <div className="p-3 rounded-lg bg-amber-500/10 border-2 border-amber-500/40">
+      <div className="flex items-center gap-2 mb-2">
+        <Clock className="h-4 w-4 text-amber-400" />
+        <span className="text-xs font-bold uppercase tracking-wider text-amber-400">
+          {items.length} ennakko{items.length === 1 ? "" : "a"} l\u00e4hist\u00f6ll\u00e4 60 min
+        </span>
+      </div>
+      <div className="space-y-1">
+        {items.map((nb) => (
+          <div key={nb.booking.id} className="flex items-center justify-between text-xs">
+            <span className="font-bold text-foreground truncate">{nb.booking.tolppa}</span>
+            <div className="flex items-center gap-2 shrink-0">
+              {nb.distanceKm !== null && (
+                <span className="text-muted-foreground">{nb.distanceKm.toFixed(1)} km</span>
+              )}
+              <span className="font-bold text-amber-400">{formatTime(nb.booking.pickup_at)}</span>
+            </div>
+          </div>
         ))}
       </div>
     </div>
