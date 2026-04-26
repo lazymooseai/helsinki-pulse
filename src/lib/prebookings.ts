@@ -31,6 +31,61 @@ export type BookingsCallResult =
   | { ok: true; bookings: ParsedBooking[]; raw_text?: string; error?: undefined }
   | { ok: false; error: string; bookings?: undefined };
 
+// ---------- Helsinki-aikavyohyke -apurit ----------
+
+/** Palauttaa Europe/Helsinki -offsetin minuuteissa annetulle UTC-hetkelle (180 = +03:00). */
+function helsinkiOffsetMinutes(at: Date): number {
+  // Format date in Helsinki timezone, then diff against UTC
+  const dtf = new Intl.DateTimeFormat("en-US", {
+    timeZone: "Europe/Helsinki",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  });
+  const parts = dtf.formatToParts(at).reduce<Record<string, string>>((acc, p) => {
+    if (p.type !== "literal") acc[p.type] = p.value;
+    return acc;
+  }, {});
+  const asUtc = Date.UTC(
+    parseInt(parts.year, 10),
+    parseInt(parts.month, 10) - 1,
+    parseInt(parts.day, 10),
+    parseInt(parts.hour === "24" ? "0" : parts.hour, 10),
+    parseInt(parts.minute, 10),
+    parseInt(parts.second, 10),
+  );
+  return Math.round((asUtc - at.getTime()) / 60000);
+}
+
+/**
+ * Yhdistaa Helsinki-paivamaaran (Y/M/D) + Helsinki-kellonajan (H/M) → ISO UTC.
+ * Toimii oikein riippumatta selaimen aikavyohykkeesta.
+ */
+function helsinkiDateTimeToIso(year: number, month: number, day: number, hour: number, minute: number): string {
+  // Naiivi UTC-aika "ikaan kuin se olisi Helsinki-aika"
+ const naiveUtcMs = Date.UTC(year, month - 1, day, hour, minute, 0);
+  // Lasketaan offset talle hetkelle (DST huomioiden)
+  const offsetMin = helsinkiOffsetMinutes(new Date(naiveUtcMs));
+  const realUtcMs = naiveUtcMs - offsetMin * 60_000;
+  return new Date(realUtcMs).toISOString();
+}
+
+/** Palauttaa Helsinki-kalenteripaivan (Y/M/D) annetulle hetkelle. */
+function helsinkiYmd(at: Date): { year: number; month: number; day: number } {
+  const dtf = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Europe/Helsinki",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  });
+  const [year, month, day] = dtf.format(at).split("-").map((s) => parseInt(s, 10));
+  return { year, month, day };
+}
+
 /** Ajaa kuvan AI:n lapi → array ennakkotilauksia. */
 export async function runImageBookings(dataUrl: string): Promise<BookingsCallResult> {
   return invokeScanPrebookings({ image: dataUrl });
@@ -115,21 +170,39 @@ export function parseTextToBookings(raw: string, baseDate = new Date()): Booking
  *   CSV: "Kamppi,14:30"
  */
 function parseBookingLine(line: string, baseDate: Date): ParsedBooking | null {
-  // Skip ilmiselvat otsikot
-  if (/^(aika|kellonaika|tolppa|paikka|nouto|time|location)/i.test(line)) return null;
+  // Siivoa Markdown-merkit (**, *, _, `) jotta AI-vastauksetkin parsiutuvat
+  const cleanLine = line
+    .replace(/[*_`]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!cleanLine) return null;
+
+  // Skip ilmiselvat otsikot ja metarivit
+  if (/^(aika|kellonaika|tolppa|paikka|nouto|time|location|paiv[aä]m[aä][aä]r[aä]|tilaus|order|bookings?:?$)/i.test(cleanLine)) return null;
 
   // ISO datetime
-  const isoMatch = line.match(/(\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(?::\d{2})?(?:[+-]\d{2}:?\d{2}|Z)?)/);
+  const isoMatch = cleanLine.match(/(\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(?::\d{2})?(?:[+-]\d{2}:?\d{2}|Z)?)/);
+  // Suomalainen paivamaara dd.mm.yyyy + kellonaika klo HH:MM
+  const fiDateMatch = cleanLine.match(/(\d{1,2})\.(\d{1,2})\.(\d{4})\s*(?:klo\s*)?(\d{1,2})[:.](\d{2})/i);
   // Pelkka kellonaika HH:MM (24h)
-  const timeMatch = line.match(/\b(\d{1,2}):(\d{2})\b/);
+  const timeMatch = cleanLine.match(/\b(\d{1,2})[:.](\d{2})\b/);
 
-  if (!isoMatch && !timeMatch) return null;
+  if (!isoMatch && !fiDateMatch && !timeMatch) return null;
 
   let isoStr: string;
   let timeText: string;
   if (isoMatch) {
     isoStr = normalizeIso(isoMatch[1], baseDate);
     timeText = isoMatch[1];
+  } else if (fiDateMatch) {
+    const day = parseInt(fiDateMatch[1], 10);
+    const month = parseInt(fiDateMatch[2], 10);
+    const year = parseInt(fiDateMatch[3], 10);
+    const h = parseInt(fiDateMatch[4], 10);
+    const m = parseInt(fiDateMatch[5], 10);
+    if (h > 23 || m > 59 || month > 12 || day > 31) return null;
+    isoStr = helsinkiDateTimeToIso(year, month, day, h, m);
+    timeText = fiDateMatch[0];
   } else {
     const h = parseInt(timeMatch![1], 10);
     const m = parseInt(timeMatch![2], 10);
@@ -139,8 +212,9 @@ function parseBookingLine(line: string, baseDate: Date): ParsedBooking | null {
   }
 
   // Loput rivista on tolppa (poista aika + erottimet)
-  const rest = line
+  let rest = cleanLine
     .replace(timeText, "")
+    .replace(/\bklo\b/gi, "")
     .replace(/[,;|\t]+/g, " ")
     .replace(/\s*-\s*/g, " ")
     .replace(/\s+/g, " ")
@@ -149,6 +223,10 @@ function parseBookingLine(line: string, baseDate: Date): ParsedBooking | null {
   if (!rest || rest.length < 2) return null;
   // Jos jaa pelkka numero, ei kelpaa tolppanimeksi
   if (/^\d+$/.test(rest)) return null;
+  // Hylkaa rivit, joissa on edelleen pelkkaa metatekstia ilman oikeaa tolpan nimea
+  if (/^(p[aä]iv[aä]m[aä][aä]r[aä]|aika|kellonaika|nouto)/i.test(rest)) return null;
+  // Vaadi vahintaan 3 merkkia ja vahintaan yksi kirjain
+  if (rest.length < 3 || !/[a-zA-ZäöåÄÖÅ]/.test(rest)) return null;
 
   return {
     tolppa: rest.slice(0, 100),
@@ -157,15 +235,20 @@ function parseBookingLine(line: string, baseDate: Date): ParsedBooking | null {
   };
 }
 
-/** Yhdistaa annetun paivan + kellonajan ISO:ksi (Helsinki-aika). */
+/**
+ * Yhdistaa annetun paivan + kellonajan ISO:ksi.
+ * KAYTTAA aina Europe/Helsinki -aikavyohyketta (riippumatta selaimen tz:sta).
+ */
 function combineDateTime(base: Date, hour: number, minute: number): string {
-  const d = new Date(base);
-  d.setHours(hour, minute, 0, 0);
+  const { year, month, day } = helsinkiYmd(base);
+  let iso = helsinkiDateTimeToIso(year, month, day, hour, minute);
   // Jos aika on jo mennyt > 6h sitten, ohjaa huomiseen
-  if (d.getTime() < Date.now() - 6 * 3600_000) {
-    d.setDate(d.getDate() + 1);
+  if (new Date(iso).getTime() < Date.now() - 6 * 3600_000) {
+    const nextDay = new Date(Date.UTC(year, month - 1, day) + 24 * 3600_000);
+    const ymd = helsinkiYmd(nextDay);
+    iso = helsinkiDateTimeToIso(ymd.year, ymd.month, ymd.day, hour, minute);
   }
-  return d.toISOString();
+  return iso;
 }
 
 /** Normalisoi mahdollisesti vajaa ISO-merkkijono kelvolliseksi ISO:ksi. */

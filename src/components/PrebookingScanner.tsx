@@ -44,17 +44,48 @@ const MAX_IMAGE_MB = 20;
 const MAX_PDF_MB = 10;
 const MAX_TEXT_MB = 2;
 
-/** Muotoile ISO → "DD.MM klo HH:MM" suomeksi syottokenttaan. */
+/**
+ * Muotoile ISO → "YYYY-MM-DDTHH:MM" Helsinki-ajassa.
+ * Selaimen aikavyohyke ei saa vaikuttaa: kuljettaja ajattelee aina Suomen aikaa.
+ */
 const isoToLocalInput = (iso: string) => {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return "";
-  const pad = (n: number) => n.toString().padStart(2, "0");
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  const dtf = new Intl.DateTimeFormat("sv-SE", {
+    timeZone: "Europe/Helsinki",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  });
+  // sv-SE → "YYYY-MM-DD HH:MM"; muunna T-erottimella
+  return dtf.format(d).replace(" ", "T");
 };
 
+/** Tulkitsee `datetime-local` -arvon (esim. "2026-04-26T16:30") aina Helsinki-aikana. */
 const inputToIso = (v: string): string => {
-  const d = new Date(v);
-  return Number.isNaN(d.getTime()) ? new Date().toISOString() : d.toISOString();
+  const m = v.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/);
+  if (!m) return new Date().toISOString();
+  const [, y, mo, d, h, mi] = m;
+  const naiveUtcMs = Date.UTC(+y, +mo - 1, +d, +h, +mi, 0);
+  // Lasketaan Helsinki-offset talle hetkelle (kesa/talvi)
+  const dtf = new Intl.DateTimeFormat("en-US", {
+    timeZone: "Europe/Helsinki",
+    year: "numeric", month: "2-digit", day: "2-digit",
+    hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false,
+  });
+  const parts = dtf.formatToParts(new Date(naiveUtcMs)).reduce<Record<string, string>>((acc, p) => {
+    if (p.type !== "literal") acc[p.type] = p.value;
+    return acc;
+  }, {});
+  const asHelsinkiUtc = Date.UTC(
+    +parts.year, +parts.month - 1, +parts.day,
+    parts.hour === "24" ? 0 : +parts.hour, +parts.minute, +parts.second,
+  );
+  const offsetMin = Math.round((asHelsinkiUtc - naiveUtcMs) / 60000);
+  return new Date(naiveUtcMs - offsetMin * 60_000).toISOString();
 };
 
 const PrebookingScanner = ({ open, onOpenChange, onSaved }: Props) => {
