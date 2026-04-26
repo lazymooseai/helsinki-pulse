@@ -60,6 +60,139 @@ export async function runOcr(dataUrl: string): Promise<OcrCallResult> {
 }
 
 /**
+ * Aja PDF-tiedosto AI-jäsentäjän läpi (sama edge-funktio, eri payload).
+ * PDF lähetetään base64-data URL:na — Gemini tukee PDF:n suoraan inlineDatassa.
+ */
+export async function runPdfOcr(pdfDataUrl: string): Promise<OcrCallResult> {
+  try {
+    const { data, error } = await supabase.functions.invoke("scan-dispatch", {
+      body: { pdf: pdfDataUrl },
+    });
+    if (error) {
+      return { ok: false, error: error.message ?? "PDF-luenta epaonnistui" };
+    }
+    if (!data || typeof data !== "object" || !data.tolppa) {
+      return { ok: false, error: data?.error ?? "AI ei pystynyt lukemaan PDF:aa" };
+    }
+    return { ok: true, result: data as OcrResult };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "tuntematon virhe" };
+  }
+}
+
+/**
+ * Jäsennä raakateksti (TXT / leikepöytä / CSV-rivi) → OcrResult.
+ * Tunnistaa tolpan + K+/T+/K-30/T-30 luvut joustavasti:
+ * - "Rautatientori" \n "K+ 8 T+ 3 K-30 12 T-30 5"
+ * - "Kamppi K+:8 T+:3 K-30:12 T-30:5"
+ * - JSON-objekti { tolppa, k_now, t_now, k_30, t_30 }
+ * - CSV: "Pasila,8,3,12,5"
+ */
+export function parseTextToOcr(raw: string): OcrCallResult {
+  const text = raw.trim();
+  if (!text) return { ok: false, error: "Tiedosto on tyhja" };
+
+  // 1. JSON-yritys
+  try {
+    const obj = JSON.parse(text);
+    if (obj && typeof obj === "object" && (obj.tolppa || obj.name)) {
+      const num = (v: unknown) => {
+        const n = typeof v === "number" ? v : parseInt(String(v ?? ""), 10);
+        return Number.isFinite(n) ? n : null;
+      };
+      return {
+        ok: true,
+        result: {
+          tolppa: String(obj.tolppa ?? obj.name ?? "Tuntematon").slice(0, 100),
+          k_now: num(obj.k_now ?? obj.kNow ?? obj.k),
+          t_now: num(obj.t_now ?? obj.tNow ?? obj.t),
+          k_30: num(obj.k_30 ?? obj.k30),
+          t_30: num(obj.t_30 ?? obj.t30),
+          confidence: 1,
+          raw_text: text.slice(0, 500),
+        },
+      };
+    }
+  } catch {
+    // ei JSON, jatka
+  }
+
+  // 2. Avain-arvo regex (joustava: K+, K +, K_now, K-30 jne.)
+  const grab = (re: RegExp): number | null => {
+    const m = text.match(re);
+    if (!m) return null;
+    const n = parseInt(m[1], 10);
+    return Number.isFinite(n) ? n : null;
+  };
+  const k_now = grab(/K\s*\+?\s*(?:nyt)?\s*[:=]?\s*(\d{1,3})\b(?!\s*-?\s*30)/i);
+  const t_now = grab(/T\s*\+?\s*(?:nyt)?\s*[:=]?\s*(\d{1,3})\b(?!\s*-?\s*30)/i);
+  const k_30 = grab(/K\s*[-_]?\s*30\s*[:=]?\s*(\d{1,3})/i);
+  const t_30 = grab(/T\s*[-_]?\s*30\s*[:=]?\s*(\d{1,3})/i);
+
+  // 3. Tolpan nimi: ensimmäinen ei-numeerinen rivi tai "tolppa:" -kentta
+  let tolppa = "";
+  const tolppaMatch = text.match(/(?:tolppa|asema|paikka|station)\s*[:=]\s*([^\n,;]+)/i);
+  if (tolppaMatch) {
+    tolppa = tolppaMatch[1].trim();
+  } else {
+    // CSV-tyyli: "Pasila,8,3,12,5"
+    const csv = text.split(/[\n;]/)[0].split(",").map((s) => s.trim());
+    if (csv.length >= 2 && csv[0] && !/^\d+$/.test(csv[0])) {
+      tolppa = csv[0];
+      if (k_now === null && csv[1]) {
+        const cn = parseInt(csv[1], 10);
+        const ct = parseInt(csv[2] ?? "", 10);
+        const ck30 = parseInt(csv[3] ?? "", 10);
+        const ct30 = parseInt(csv[4] ?? "", 10);
+        return {
+          ok: true,
+          result: {
+            tolppa: tolppa.slice(0, 100),
+            k_now: Number.isFinite(cn) ? cn : null,
+            t_now: Number.isFinite(ct) ? ct : null,
+            k_30: Number.isFinite(ck30) ? ck30 : null,
+            t_30: Number.isFinite(ct30) ? ct30 : null,
+            confidence: 0.95,
+            raw_text: text.slice(0, 500),
+          },
+        };
+      }
+    } else {
+      // Ensimmainen rivi joka ei ole pelkkia numeroita/erotinmerkkeja
+      const lines = text.split(/\n/).map((l) => l.trim()).filter(Boolean);
+      tolppa = lines.find((l) => /[a-zA-ZäöåÄÖÅ]/.test(l) && l.length <= 60) ?? "Tuntematon";
+    }
+  }
+
+  if (!tolppa && k_now === null && t_now === null) {
+    return { ok: false, error: "Tekstista ei löytynyt tolppaa eika lukuja" };
+  }
+
+  return {
+    ok: true,
+    result: {
+      tolppa: (tolppa || "Tuntematon").slice(0, 100),
+      k_now,
+      t_now,
+      k_30,
+      t_30,
+      confidence: 0.9,
+      raw_text: text.slice(0, 500),
+    },
+  };
+}
+
+/** Lue File tekstiksi UTF-8 muodossa. */
+export function fileToText(file: File | Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => resolve(String(r.result ?? ""));
+    r.onerror = () => reject(r.error);
+    r.readAsText(file, "utf-8");
+  });
+}
+
+/**
  * Lataa raakakuvan Storageen ja palauttaa julkisen URL:n.
  */
 export async function uploadScanImage(blob: Blob, scanId: string): Promise<string | null> {

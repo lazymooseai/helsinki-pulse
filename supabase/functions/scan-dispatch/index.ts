@@ -4,7 +4,9 @@
  * Lukee Taksi Helsinki -valityslaitteen naytön kuvan ja palauttaa
  * K+/T+/K-30/T-30 luvut tolppakohtaisesti.
  *
- * Input: { image: "data:image/jpeg;base64,..." }
+ * Input:
+ *   { image: "data:image/jpeg;base64,..." }   — kuva
+ *   { pdf:   "data:application/pdf;base64,..." } — PDF (Gemini lukee suoraan)
  * Output: { tolppa, k_now, t_now, k_30, t_30, ocr_confidence, raw_text }
  */
 
@@ -56,16 +58,17 @@ Deno.serve(async (req: Request) => {
       });
     }
 
-    const { image } = await req.json();
-    if (!image || typeof image !== "string" || !image.startsWith("data:image/")) {
-      return new Response(JSON.stringify({ error: "image on pakollinen (data:image/...;base64,...)" }), {
+    const body = await req.json();
+    const payload: string | undefined = body.image ?? body.pdf;
+    if (!payload || typeof payload !== "string" || !payload.startsWith("data:")) {
+      return new Response(JSON.stringify({ error: "image tai pdf on pakollinen (data:...;base64,...)" }), {
         status: 400,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
-    // Erota mime + base64 data:image/jpeg;base64,XXXX -muodosta
-    const match = image.match(/^data:(image\/[a-zA-Z+.-]+);base64,(.+)$/);
+    // Erota mime + base64 data:<mime>;base64,XXXX -muodosta
+    const match = payload.match(/^data:([a-zA-Z0-9+.\/-]+);base64,(.+)$/);
     if (!match) {
       return new Response(JSON.stringify({ error: "Virheellinen data URL" }), {
         status: 400,
@@ -75,12 +78,18 @@ Deno.serve(async (req: Request) => {
     const mimeType = match[1];
     const base64Data = match[2];
 
-    // Gemini tukee vain naita kuvatyyppeja - DNG/HEIC/RAW ei toimi
-    const SUPPORTED_MIMES = ["image/jpeg", "image/png", "image/webp", "image/heif"];
+    // Gemini tukee naita: kuvat + PDF
+    const SUPPORTED_MIMES = [
+      "image/jpeg",
+      "image/png",
+      "image/webp",
+      "image/heif",
+      "application/pdf",
+    ];
     if (!SUPPORTED_MIMES.includes(mimeType)) {
       return new Response(
         JSON.stringify({
-          error: `Kuvatyyppi ${mimeType} ei ole tuettu. Kayta JPEG/PNG/WEBP. Vaihda kameran asetuksista RAW/DNG pois paalta.`,
+          error: `Tyyppi ${mimeType} ei ole tuettu. Kayta JPEG/PNG/WEBP tai PDF.`,
         }),
         {
           status: 415,
@@ -88,6 +97,7 @@ Deno.serve(async (req: Request) => {
         }
       );
     }
+    const isPdf = mimeType === "application/pdf";
 
     const aiRes = await fetch(`${GEMINI_URL}?key=${GEMINI_API_KEY}`, {
       method: "POST",
@@ -98,7 +108,11 @@ Deno.serve(async (req: Request) => {
           {
             role: "user",
             parts: [
-              { text: "Lue luvut talta valityslaitteen naytön kuvalta." },
+              {
+                text: isPdf
+                  ? "Lue luvut tasta PDF-raportista (valityslaitteen tilanne). Ota ensimmainen / paaasiallinen tolppa."
+                  : "Lue luvut talta valityslaitteen naytön kuvalta.",
+              },
               { inlineData: { mimeType, data: base64Data } },
             ],
           },
