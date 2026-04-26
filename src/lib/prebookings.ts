@@ -31,6 +31,61 @@ export type BookingsCallResult =
   | { ok: true; bookings: ParsedBooking[]; raw_text?: string; error?: undefined }
   | { ok: false; error: string; bookings?: undefined };
 
+// ---------- Helsinki-aikavyohyke -apurit ----------
+
+/** Palauttaa Europe/Helsinki -offsetin minuuteissa annetulle UTC-hetkelle (180 = +03:00). */
+function helsinkiOffsetMinutes(at: Date): number {
+  // Format date in Helsinki timezone, then diff against UTC
+  const dtf = new Intl.DateTimeFormat("en-US", {
+    timeZone: "Europe/Helsinki",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  });
+  const parts = dtf.formatToParts(at).reduce<Record<string, string>>((acc, p) => {
+    if (p.type !== "literal") acc[p.type] = p.value;
+    return acc;
+  }, {});
+  const asUtc = Date.UTC(
+    parseInt(parts.year, 10),
+    parseInt(parts.month, 10) - 1,
+    parseInt(parts.day, 10),
+    parseInt(parts.hour === "24" ? "0" : parts.hour, 10),
+    parseInt(parts.minute, 10),
+    parseInt(parts.second, 10),
+  );
+  return Math.round((asUtc - at.getTime()) / 60000);
+}
+
+/**
+ * Yhdistaa Helsinki-paivamaaran (Y/M/D) + Helsinki-kellonajan (H/M) → ISO UTC.
+ * Toimii oikein riippumatta selaimen aikavyohykkeesta.
+ */
+function helsinkiDateTimeToIso(year: number, month: number, day: number, hour: number, minute: number): string {
+  // Naiivi UTC-aika "ikaan kuin se olisi Helsinki-aika"
+ const naiveUtcMs = Date.UTC(year, month - 1, day, hour, minute, 0);
+  // Lasketaan offset talle hetkelle (DST huomioiden)
+  const offsetMin = helsinkiOffsetMinutes(new Date(naiveUtcMs));
+  const realUtcMs = naiveUtcMs - offsetMin * 60_000;
+  return new Date(realUtcMs).toISOString();
+}
+
+/** Palauttaa Helsinki-kalenteripaivan (Y/M/D) annetulle hetkelle. */
+function helsinkiYmd(at: Date): { year: number; month: number; day: number } {
+  const dtf = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Europe/Helsinki",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  });
+  const [year, month, day] = dtf.format(at).split("-").map((s) => parseInt(s, 10));
+  return { year, month, day };
+}
+
 /** Ajaa kuvan AI:n lapi → array ennakkotilauksia. */
 export async function runImageBookings(dataUrl: string): Promise<BookingsCallResult> {
   return invokeScanPrebookings({ image: dataUrl });
