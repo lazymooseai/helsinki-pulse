@@ -166,19 +166,29 @@ export function parseTextToOcr(raw: string): OcrCallResult {
     }
   }
 
-  if (!tolppa && k_now === null && t_now === null) {
-    return { ok: false, error: "Tekstista ei löytynyt tolppaa eika lukuja" };
+  // Jos parseri ei löytänyt mitään hyödyllistä, palauta selkeä virhe.
+  if (!tolppa && k_now === null && t_now === null && k_30 === null && t_30 === null) {
+    return {
+      ok: false,
+      error:
+        "Tekstistä ei löytynyt tolppaa eikä K/T-lukuja. Tarkista tiedoston muoto (esim. \"Pasila K+ 8 T+ 3 K-30 12 T-30 5\").",
+    };
   }
+
+  // "Tuntematon"-fallback estää tallennuksen myöhemmin (banned-lista). Jätetään tyhjäksi
+  // jotta käyttäjä täyttää nimen review-näkymässä käsin.
+  const cleanTolppa = tolppa.trim();
+  const isBogus = !cleanTolppa || /^tuntematon$/i.test(cleanTolppa);
 
   return {
     ok: true,
     result: {
-      tolppa: (tolppa || "Tuntematon").slice(0, 100),
+      tolppa: isBogus ? "" : cleanTolppa.slice(0, 100),
       k_now,
       t_now,
       k_30,
       t_30,
-      confidence: 0.9,
+      confidence: isBogus ? 0.5 : 0.9,
       raw_text: text.slice(0, 500),
     },
   };
