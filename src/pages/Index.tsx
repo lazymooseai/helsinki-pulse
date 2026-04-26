@@ -12,6 +12,7 @@ import DevTools from "@/components/DevTools";
 import TripHistoryCard from "@/components/trips/TripHistoryCard";
 import TripsTabs from "@/components/trips/TripsTabs";
 import DispatchLiveCard from "@/components/DispatchLiveCard";
+import PrebookingsCard from "@/components/PrebookingsCard";
 
 const Index = () => {
   return (
@@ -23,6 +24,7 @@ const Index = () => {
         <FeedbackButtons />
         <JackpotAlert />
         <DispatchLiveCard />
+        <PrebookingsCard />
         <CapacityFeeds />
         <DetailTabs />
         <TrafficCameras />
