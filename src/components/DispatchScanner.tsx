@@ -246,7 +246,7 @@ const DispatchScanner = ({ open, onOpenChange, onSaved }: Props) => {
   const handleSave = async () => {
     const tolppaName = form.tolppa.trim();
     if (!tolppaName) {
-      toast.error("Tolpan nimi on pakollinen");
+      toast.error("Täytä tolpan nimi (AI ei tunnistanut sitä tiedostosta)");
       return;
     }
     if (!isValidTolppaName(tolppaName)) {
