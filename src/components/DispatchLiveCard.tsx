@@ -46,6 +46,7 @@ import {
   TOLPAT,
   ALL_ZONES,
   findTolppa,
+  findTolppaSmart,
   distanceKm,
   type TolppaLocation,
   type Zone,
@@ -141,7 +142,7 @@ const DispatchLiveCard = () => {
   // Liitä koordinaatit + etäisyys jokaiseen skannaukseen
   const enriched: ScanWithLocation[] = useMemo(() => {
     return latest.map((scan) => {
-      const loc = findTolppa(scan.tolppa);
+      const loc = findTolppaSmart(scan.tolppa);
       const dist =
         loc && geo.lat !== null && geo.lon !== null
           ? distanceKm(geo.lat, geo.lon, loc.lat, loc.lon)
@@ -441,7 +442,7 @@ const RecommendView = ({
     return upcomingBookings
       .filter((b) => new Date(b.pickup_at).getTime() <= cutoff)
       .map((b) => {
-        const loc = findTolppa(b.tolppa);
+        const loc = findTolppaSmart(b.tolppa);
         const dist =
           loc && myLat !== null && myLon !== null
             ? distanceKm(myLat, myLon, loc.lat, loc.lon)
