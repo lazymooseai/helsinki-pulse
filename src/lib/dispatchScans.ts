@@ -7,6 +7,7 @@
  */
 
 import { supabase } from "@/integrations/supabase/client";
+import { findTolppaSmart, isValidTolppaName } from "@/lib/tolppaLocations";
 
 export interface DispatchScan {
   id: string;
