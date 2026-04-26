@@ -192,10 +192,10 @@ const DispatchScanner = ({ open, onOpenChange, onSaved }: Props) => {
     const isText =
       file.type.startsWith("text/") ||
       file.type === "application/json" ||
-      /\.(txt|csv|json|md)$/i.test(file.name);
+      /\.(txt|csv|json|md|html?|xml)$/i.test(file.name);
 
     if (!isPdf && !isText) {
-      toast.error("Tuetut: TXT, CSV, JSON, PDF");
+      toast.error("Tuetut: TXT, CSV, JSON, HTML, PDF");
       return;
     }
     const maxMb = isPdf ? MAX_PDF_MB : MAX_TEXT_MB;
@@ -332,7 +332,7 @@ const DispatchScanner = ({ open, onOpenChange, onSaved }: Props) => {
             <input
               ref={docRef}
               type="file"
-              accept=".txt,.csv,.json,.md,.pdf,text/plain,text/csv,application/json,application/pdf"
+              accept=".txt,.csv,.json,.md,.html,.htm,.xml,.pdf,text/plain,text/csv,text/html,application/json,application/pdf,application/xml"
               className="hidden"
               onChange={(e) => handleDocPicked(e.target.files?.[0])}
             />
@@ -356,7 +356,7 @@ const DispatchScanner = ({ open, onOpenChange, onSaved }: Props) => {
 
             <div className="pt-2 border-t border-slate-700" />
             <p className="text-xs text-muted-foreground text-center">
-              Tekstidata (nopein) — TXT, CSV, JSON tai PDF
+              Tekstidata (nopein) — TXT, CSV, JSON, HTML tai PDF
             </p>
 
             <Button
@@ -365,7 +365,7 @@ const DispatchScanner = ({ open, onOpenChange, onSaved }: Props) => {
               className="w-full h-16 text-lg font-bold border-slate-600"
             >
               <FileText className="h-6 w-6 mr-3" />
-              Lisaa TXT / CSV / PDF
+              Lisaa TXT / HTML / PDF
             </Button>
 
             <div className="pt-2 border-t border-slate-700" />
