@@ -150,8 +150,16 @@ Deno.serve(async (req) => {
 
   } catch (error) {
     console.error('Averio fetch error:', error);
-    return new Response(JSON.stringify({ error: error.message }), {
-      status: 500,
+    // Palautetaan 200 + fallback-lippu, jotta frontend ei kaadu eika nayta tyhjaa ruutua
+    return new Response(JSON.stringify({
+      estimates: {},
+      ships: [],
+      source: 'fallback',
+      fallback: true,
+      error: (error as Error).message,
+      timestamp: new Date().toISOString(),
+    }), {
+      status: 200,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
   }
