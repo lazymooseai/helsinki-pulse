@@ -324,6 +324,22 @@ export async function getLatestPerTolppa(maxAgeMin = 60): Promise<Map<string, Di
 }
 
 /**
+ * Hae KAIKKI skannaukset viimeiseltä N päivältä (heatmappia varten).
+ * Default 14 päivää — tarpeeksi tunti × tolppa -aggregaatille.
+ */
+export async function listScansSince(daysBack = 14): Promise<DispatchScan[]> {
+  const cutoff = new Date(Date.now() - daysBack * 24 * 60 * 60_000).toISOString();
+  const { data, error } = await supabase
+    .from("dispatch_scans")
+    .select("*")
+    .gte("scanned_at", cutoff)
+    .order("scanned_at", { ascending: false })
+    .limit(1000);
+  if (error || !data) return [];
+  return data as DispatchScan[];
+}
+
+/**
  * Konvertoi File -> data URL (AI-syötetta varten).
  */
 export function fileToDataUrl(file: File | Blob): Promise<string> {
