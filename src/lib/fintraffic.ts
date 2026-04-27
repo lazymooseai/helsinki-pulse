@@ -116,18 +116,16 @@ function isHeadingToHelsinki(
   if (station === "HKI") {
     return rows.some((r) => r.type === "ARRIVAL" && r.stationShortCode === "HKI");
   }
-  const stationArrival = rows.find(
-    (r) => r.type === "ARRIVAL" && r.stationShortCode === station
+  // Etsi junan ENSIMMAINEN lahto (origin) ja VIIMEINEN saapuminen (destination)
+  // aikataulun mukaan jarjestettyna.
+  const sorted = [...rows].sort(
+    (a, b) => new Date(a.scheduledTime).getTime() - new Date(b.scheduledTime).getTime()
   );
-  const hkiArrival = rows.find(
-    (r) => r.type === "ARRIVAL" && r.stationShortCode === "HKI"
-  );
-  if (!stationArrival || !hkiArrival) return false;
-  // HKI saapumisajan tulee olla MYOHEMMIN kuin valitun aseman saapumisajan
-  return (
-    new Date(hkiArrival.scheduledTime).getTime() >
-    new Date(stationArrival.scheduledTime).getTime()
-  );
+  const firstDeparture = sorted.find((r) => r.type === "DEPARTURE");
+  const lastArrival = [...sorted].reverse().find((r) => r.type === "ARRIVAL");
+  if (!firstDeparture || !lastArrival) return false;
+  // Helsinki-suuntainen = paatepysakki on HKI, EIKA juna lahde Helsingista
+  return lastArrival.stationShortCode === "HKI" && firstDeparture.stationShortCode !== "HKI";
 }
 
 /**
