@@ -1,4 +1,5 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -241,6 +242,84 @@ Deno.serve(async (req) => {
       est.factor = est.maxCapacity > 0
         ? Math.min(100, Math.round((est.estimate / est.maxCapacity) * 100))
         : 0;
+    }
+
+    // 4) Tallenna havainnot historia-tauluun oppimista varten.
+    //    Vain laivat joilla on pax > 0 (eli Averio antoi luvun) — nämä ovat
+    //    "todellisia" havaintoja joita vasten agentin ennusteita verrataan.
+    try {
+      const supabaseUrl = Deno.env.get('SUPABASE_URL') ?? '';
+      const serviceKey  = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
+      if (supabaseUrl && serviceKey && shipList.length > 0) {
+        const sb = createClient(supabaseUrl, serviceKey);
+
+        // Hae sää (Helsinki) yhdellä kutsulla — käytetään kaikille riveille
+        let weatherCode: number | null = null;
+        let temperatureC: number | null = null;
+        try {
+          const wRes = await fetch('https://api.open-meteo.com/v1/forecast?latitude=60.17&longitude=24.94&current=temperature_2m,weather_code&timezone=Europe%2FHelsinki');
+          if (wRes.ok) {
+            const w = await wRes.json();
+            weatherCode  = w?.current?.weather_code ?? null;
+            temperatureC = w?.current?.temperature_2m ?? null;
+          }
+        } catch (_) { /* ignore */ }
+
+        const rows = shipList
+          .filter(s => s.pax > 0) // vain todelliset havainnot
+          .map(s => {
+            const dt = parseShipDate(s.arrivalTime);
+            if (!dt) return null;
+            const dow = ((dt.getDay() + 6) % 7) + 1; // ISO 1..7 (Mon=1)
+            return {
+              ship: s.ship,
+              terminal: s.harbor,
+              arrival_time: dt.toISOString(),
+              pax: s.pax,
+              day_of_week: dow,
+              hour_of_day: dt.getHours(),
+              month_num: dt.getMonth() + 1,
+              is_weekend: dow >= 6,
+              weather_code: weatherCode,
+              temperature_c: temperatureC,
+              source: 'averio',
+            };
+          })
+          .filter((r): r is NonNullable<typeof r> => r !== null);
+
+        if (rows.length > 0) {
+          const { error: upErr } = await sb
+            .from('ship_pax_history')
+            .upsert(rows, { onConflict: 'ship,arrival_time,source', ignoreDuplicates: false });
+          if (upErr) console.warn('ship_pax_history upsert virhe:', upErr.message);
+        }
+
+        // 5) Päivitä aiempien ennusteiden actual_pax (jos ennuste on jo tehty
+        //    näille saapumisille) jotta agentti voi mitata tarkkuutensa.
+        for (const s of shipList.filter(x => x.pax > 0)) {
+          const dt = parseShipDate(s.arrivalTime);
+          if (!dt) continue;
+          const { data: preds } = await sb
+            .from('ship_pax_predictions')
+            .select('id, predicted_pax')
+            .eq('ship', s.ship)
+            .eq('arrival_time', dt.toISOString())
+            .is('actual_pax', null);
+          if (!preds || preds.length === 0) continue;
+          for (const p of preds) {
+            const errAbs = Math.abs((p.predicted_pax ?? 0) - s.pax);
+            const errPct = s.pax > 0 ? (errAbs / s.pax) * 100 : null;
+            await sb.from('ship_pax_predictions').update({
+              actual_pax: s.pax,
+              error_abs: errAbs,
+              error_pct: errPct,
+              evaluated_at: new Date().toISOString(),
+            }).eq('id', p.id);
+          }
+        }
+      }
+    } catch (e) {
+      console.warn('Historia/ennuste-talletus epaonnistui:', (e as Error).message);
     }
 
     return new Response(JSON.stringify({

@@ -176,6 +176,114 @@ export type Database = {
         }
         Relationships: []
       }
+      ship_pax_history: {
+        Row: {
+          arrival_time: string
+          created_at: string
+          day_of_week: number | null
+          hour_of_day: number | null
+          id: string
+          is_weekend: boolean | null
+          month_num: number | null
+          observed_at: string
+          pax: number
+          ship: string
+          source: string
+          temperature_c: number | null
+          terminal: string
+          updated_at: string
+          weather_code: number | null
+        }
+        Insert: {
+          arrival_time: string
+          created_at?: string
+          day_of_week?: number | null
+          hour_of_day?: number | null
+          id?: string
+          is_weekend?: boolean | null
+          month_num?: number | null
+          observed_at?: string
+          pax?: number
+          ship: string
+          source?: string
+          temperature_c?: number | null
+          terminal: string
+          updated_at?: string
+          weather_code?: number | null
+        }
+        Update: {
+          arrival_time?: string
+          created_at?: string
+          day_of_week?: number | null
+          hour_of_day?: number | null
+          id?: string
+          is_weekend?: boolean | null
+          month_num?: number | null
+          observed_at?: string
+          pax?: number
+          ship?: string
+          source?: string
+          temperature_c?: number | null
+          terminal?: string
+          updated_at?: string
+          weather_code?: number | null
+        }
+        Relationships: []
+      }
+      ship_pax_predictions: {
+        Row: {
+          actual_pax: number | null
+          arrival_time: string
+          created_at: string
+          error_abs: number | null
+          error_pct: number | null
+          evaluated_at: string | null
+          features: Json | null
+          id: string
+          model: string
+          predicted_at: string
+          predicted_pax: number
+          reasoning: string | null
+          ship: string
+          terminal: string
+          updated_at: string
+        }
+        Insert: {
+          actual_pax?: number | null
+          arrival_time: string
+          created_at?: string
+          error_abs?: number | null
+          error_pct?: number | null
+          evaluated_at?: string | null
+          features?: Json | null
+          id?: string
+          model?: string
+          predicted_at?: string
+          predicted_pax: number
+          reasoning?: string | null
+          ship: string
+          terminal: string
+          updated_at?: string
+        }
+        Update: {
+          actual_pax?: number | null
+          arrival_time?: string
+          created_at?: string
+          error_abs?: number | null
+          error_pct?: number | null
+          evaluated_at?: string | null
+          features?: Json | null
+          id?: string
+          model?: string
+          predicted_at?: string
+          predicted_pax?: number
+          reasoning?: string | null
+          ship?: string
+          terminal?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       taxi_trips: {
         Row: {
           created_at: string
