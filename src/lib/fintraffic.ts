@@ -47,6 +47,7 @@ interface FintrafficTrain {
   trainNumber: number;
   trainType: string;
   trainCategory: string;
+  commuterLineID?: string;
   cancelled: boolean;
   timeTableRows: FintrafficTimeTableRow[];
 }
