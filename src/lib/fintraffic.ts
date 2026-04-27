@@ -174,12 +174,15 @@ export async function fetchLiveTrains(station: TrainStation = "HKI"): Promise<Tr
     );
     if (!arrival) continue;
 
-    // VAIN saapuvat: jos saapumisaika on jo mennyt (yli 2 min sitten), ohita.
-    // Tämä estää Helsingistä juuri lähteneiden junien näyttämisen.
+    // VAIN saapuvat seuraavan tunnin sisalla:
+    // - ohita jos saapuminen on jo mennyt (yli 2 min sitten)
+    // - ohita jos saapuminen on yli 60 min paassa
     const arrivalEpoch = new Date(
       arrival.liveEstimateTime ?? arrival.actualTime ?? arrival.scheduledTime
     ).getTime();
-    if (arrivalEpoch < Date.now() - 2 * 60 * 1000) continue;
+    const now = Date.now();
+    if (arrivalEpoch < now - 2 * 60 * 1000) continue;
+    if (arrivalEpoch > now + 60 * 60 * 1000) continue;
 
     // Laske viive: kayta liveEstimate > actualTime > scheduled
     const scheduled = new Date(arrival.scheduledTime);
@@ -222,5 +225,6 @@ export async function fetchLiveTrains(station: TrainStation = "HKI"): Promise<Tr
     return ah * 60 + am - (bh * 60 + bm);
   });
 
-  return results;
+  // Nayta vain 5 seuraavaa junaa
+  return results.slice(0, 5);
 }
