@@ -58,6 +58,10 @@ function parseAverioHtml(html: string): AverioShip[] {
     const pax        = parseInt(paxStr, 10);
 
     if (!arrivalTime || arrivalTime === 'Saapumisaika') continue;
+    // Skippaa Averion sivutus-/footer-rivit (esim. "1/16", "2/16")
+    if (/^\d+\s*\/\s*\d+$/.test(arrivalTime) || /^\d+\s*\/\s*\d+/.test(harbor) || /^\d+\s*\/\s*\d+/.test(ship)) continue;
+    // Aikaformaatti pitaa olla "HH:MM ..." muutoin skipataan
+    if (!/^\d{1,2}:\d{2}/.test(arrivalTime)) continue;
 
     ships.push({
       arrivalTime,
@@ -67,6 +71,57 @@ function parseAverioHtml(html: string): AverioShip[] {
     });
   }
   return ships;
+}
+
+/**
+ * Parsii Port of Helsinki -saapumistaulukon (toinen <table> sivulla).
+ * Rivi: <td>28.4.2026 00:30</td><td>Megastar</td><td>Tallink Silja Oy</td>
+ *       <td class="from">Tallinn</td><td class="terminal">West Terminal 2</td>
+ * Palauttaa { ship, terminal, arrivalTime } "HH:MM DD.MM.YYYY" -muodossa
+ * Averion kanssa yhteensopivasti.
+ */
+function parsePortOfHelsinkiArrivals(html: string): Array<{ ship: string; terminal: string; arrivalTime: string }> {
+  const out: Array<{ ship: string; terminal: string; arrivalTime: string }> = [];
+  // Etsi rivit, joissa on 'class="from"' (= saapuvat)
+  const rowRegex = /<tr[^>]*>\s*<td[^>]*>(\d{1,2}\.\d{1,2}\.\d{4}\s+\d{1,2}:\d{2})<\/td>\s*<td[^>]*>([^<]+)<\/td>\s*<td[^>]*>[^<]*<\/td>\s*<td[^>]*class="from"[^>]*>[^<]*<\/td>\s*<td[^>]*class="terminal"[^>]*>([^<]+)<\/td>\s*<\/tr>/g;
+  let m;
+  while ((m = rowRegex.exec(html)) !== null) {
+    const dateTime = m[1].trim(); // "28.4.2026 00:30"
+    const ship = m[2].trim();
+    const terminalRaw = m[3].trim();
+    // Muunna "D.M.YYYY HH:MM" -> "HH:MM DD.MM.YYYY" (Averio-formaatti)
+    const parts = dateTime.split(/\s+/);
+    const [d, mo, y] = parts[0].split('.');
+    const hhmm = parts[1];
+    const dd = d.padStart(2, '0');
+    const mm = mo.padStart(2, '0');
+    out.push({
+      ship,
+      terminal: terminalRaw,
+      arrivalTime: `${hhmm} ${dd}.${mm}.${y}`,
+    });
+  }
+  return out;
+}
+
+/** Map PoH terminal name -> sisainen terminaali */
+function mapPohTerminal(t: string): string {
+  const s = t.toLowerCase();
+  if (s.includes('olympia')) return 'Olympiaterminaali';
+  if (s.includes('katajanokka')) return 'Katajanokka';
+  if (s.includes('west')) return 'Länsiterminaali';
+  if (s.includes('hansa') || s.includes('vuosaari') || s.includes('muuga')) return 'Vuosaari';
+  return t;
+}
+
+/** Parsii "HH:MM DD.MM.YYYY" -> Date */
+function parseShipDate(s: string): Date | null {
+  const parts = s.split(/\s+/);
+  if (parts.length < 2) return null;
+  const [hh, mm] = parts[0].split(':').map(Number);
+  const [d, mo, y] = parts[1].split('.').map(Number);
+  if (isNaN(hh) || isNaN(mm) || isNaN(d) || isNaN(mo) || isNaN(y)) return null;
+  return new Date(y, mo - 1, d, hh, mm, 0);
 }
 
 /**
