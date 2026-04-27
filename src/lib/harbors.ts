@@ -74,3 +74,26 @@ function timeToMinutes(hhmm: string): number {
   const [h, m] = hhmm.split(':').map(Number);
   return h * 60 + m;
 }
+
+/**
+ * Pyydä agentin (Lovable AI + historia) ennuste laivan matkustajamäärästä.
+ * Ennuste tallentuu ship_pax_predictions-tauluun, ja kun todellinen pax tulee
+ * Averiosta, fetch-harbor-pax päivittää actual_pax + virhemittarit.
+ */
+export async function predictShipPax(input: {
+  ship: string;
+  terminal: string;
+  arrival_time: string; // ISO
+}): Promise<{ predicted_pax: number; reasoning: string; model: string } | null> {
+  try {
+    const { data, error } = await supabase.functions.invoke('predict-ship-pax', { body: input });
+    if (error) {
+      console.warn('predict-ship-pax virhe:', error.message);
+      return null;
+    }
+    return data as { predicted_pax: number; reasoning: string; model: string };
+  } catch (e) {
+    console.warn('predict-ship-pax poikkeus:', e);
+    return null;
+  }
+}
