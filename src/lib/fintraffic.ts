@@ -104,6 +104,33 @@ function isHelsinkiBound(rows: FintrafficTimeTableRow[]): boolean {
 }
 
 /**
+ * Tarkistaa onko juna matkalla kohti Helsinkia valitulta asemalta katsoen.
+ * PSL/TKL ovat valiasemia: junat voivat kulkea molempiin suuntiin.
+ * Hyvaksytaan vain junat, joissa HKI ARRIVAL tapahtuu valitun aseman
+ * ARRIVAL-rivin JALKEEN aikataulussa (eli juna on tulossa Helsinkiin).
+ */
+function isHeadingToHelsinki(
+  rows: FintrafficTimeTableRow[],
+  station: TrainStation
+): boolean {
+  if (station === "HKI") {
+    return rows.some((r) => r.type === "ARRIVAL" && r.stationShortCode === "HKI");
+  }
+  const stationArrival = rows.find(
+    (r) => r.type === "ARRIVAL" && r.stationShortCode === station
+  );
+  const hkiArrival = rows.find(
+    (r) => r.type === "ARRIVAL" && r.stationShortCode === "HKI"
+  );
+  if (!stationArrival || !hkiArrival) return false;
+  // HKI saapumisajan tulee olla MYOHEMMIN kuin valitun aseman saapumisajan
+  return (
+    new Date(hkiArrival.scheduledTime).getTime() >
+    new Date(stationArrival.scheduledTime).getTime()
+  );
+}
+
+/**
  * Hakee reaaliaikaiset kaukojunat valitulle asemalle.
  * Palauttaa vain myohastyneet tai pian saapuvat junat.
  *
@@ -136,10 +163,10 @@ export async function fetchLiveTrains(station: TrainStation = "HKI"): Promise<Tr
       continue;
     }
 
-    // HKI-asemalla naytetaan vain Helsinkiin saapuvat (paateaseman saapumiset).
-    // PSL/TKL ovat valiasemia: kaikki kaukojunien pysahdykset ovat relevantteja
-    // taksikuljettajalle (sek. Helsinkiin saapuvat etta Helsingista lahtevat).
-    if (station === "HKI" && !isHelsinkiBound(train.timeTableRows)) {
+    // Naytetaan vain Helsinki-suuntaiset junat kaikilla asemilla (HKI/PSL/TKL).
+    // Helsingista lahtevat junat (esim. PSL nakee HKI->TPE junan "saapuvana")
+    // suodatetaan pois, koska niiden matkustajat eivat ole taksiasiakkaita.
+    if (!isHeadingToHelsinki(train.timeTableRows, station)) {
       continue;
     }
 
