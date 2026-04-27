@@ -85,7 +85,7 @@ const DevTools = () => {
           {/* Viimeisin paivitys */}
           {lastFetch && (
             <p className="text-xs text-muted-foreground px-1">
-              Paivitetty: {lastFetch.toLocaleTimeString("fi-FI")} —{" "}
+              Päivitetty: {lastFetch.toLocaleTimeString("fi-FI")} —{" "}
               {state.trainDelays.length} junaa,{" "}
               {state.shipArrivals.length} laivaa,{" "}
               {state.events.length} tapahtumaa

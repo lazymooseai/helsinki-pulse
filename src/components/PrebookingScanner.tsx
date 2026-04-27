@@ -337,7 +337,7 @@ const PrebookingScanner = ({ open, onOpenChange, onSaved }: Props) => {
           <div className="mt-4 space-y-3">
             <div className="flex items-center justify-between">
               <Badge variant="outline" className="border-slate-600">
-                Lahde: {sourceLabel}
+                Lähde: {sourceLabel}
               </Badge>
               <Button onClick={addBooking} size="sm" variant="ghost" className="text-xs">
                 <Plus className="h-3 w-3 mr-1" /> Lisaa rivi

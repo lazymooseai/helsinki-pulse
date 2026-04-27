@@ -213,7 +213,7 @@ const ControlRoomDrawer = () => {
         <button className="flex items-center gap-2 h-10 rounded-lg bg-secondary border border-border px-3 active:scale-95 transition-transform">
           <Database className="h-5 w-5 text-primary" />
           <span className="text-xs font-black uppercase tracking-wider text-foreground">
-            Lahteet
+            Lähteet
           </span>
         </button>
       </SheetTrigger>
@@ -227,7 +227,7 @@ const ControlRoomDrawer = () => {
             Master Data Library
           </SheetTitle>
           <SheetDescription className="text-muted-foreground text-sm">
-            Kaikki strategiset lahteet — napista uuteen valilehteen
+            Kaikki strategiset lähteet — napista uuteen välilehteen
           </SheetDescription>
         </SheetHeader>
 
@@ -276,7 +276,7 @@ const ControlRoomDrawer = () => {
         </Accordion>
 
         <p className="text-xs text-muted-foreground text-center px-4 pb-6">
-          Data haetaan avoimista rajapinnoista. Kayta linkkeja tiedon vahvistamiseen.
+          Data haetaan avoimista rajapinnoista. Käytä linkkejä tiedon vahvistamiseen.
         </p>
       </SheetContent>
     </Sheet>
