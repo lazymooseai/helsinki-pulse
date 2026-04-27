@@ -18,14 +18,19 @@ function getFintrafficUrl(station: TrainStation): string {
 
 // Asemien lyhytkoodit -> kaupunkinimet
 const STATION_NAMES: Record<string, string> = {
-  OL:  "Oulu",       TPE: "Tampere",    TKU: "Turku",
-  JY:  "Jyvaskyla",  KUO: "Kuopio",     JNS: "Joensuu",
-  ROI: "Rovaniemi",  KEM: "Kemi",       SEI: "Seinajoki",
-  LR:  "Lahti",      KOK: "Kokkola",    MI:  "Mikkeli",
-  PM:  "Pieksamaki", VNS: "Vaasa",      KAJ: "Kajaani",
-  LI:  "Lappeenranta", RI: "Riihimaki", HKI: "Helsinki",
-  PSL: "Pasila",     TKL: "Tikkurila",  KV:  "Kouvola",
-  HML: "Hameenlinna", IK: "Ikaalinen",  SK:  "Salo",
+  OL:  "Oulu",        TPE: "Tampere",     TKU: "Turku",
+  JY:  "Jyväskylä",   KUO: "Kuopio",      JNS: "Joensuu",
+  ROI: "Rovaniemi",   KEM: "Kemi",        SEI: "Seinäjoki",
+  LH:  "Lahti",       LR:  "Lahti",       KOK: "Kokkola",
+  MI:  "Mikkeli",     PM:  "Pieksämäki",  VS:  "Vaasa",
+  VNS: "Vaasa",       KAJ: "Kajaani",     LPV: "Lappeenranta",
+  LR2: "Lappeenranta",RI:  "Riihimäki",   HKI: "Helsinki",
+  PSL: "Pasila",      TKL: "Tikkurila",   KV:  "Kouvola",
+  HL:  "Hämeenlinna", HML: "Hämeenlinna", IK:  "Ikaalinen",
+  SK:  "Salo",        IMR: "Imatra",      JNS2:"Joensuu",
+  KAJ2:"Kajaani",     YV:  "Ylivieska",   KEM2:"Kemi",
+  TKU2:"Turku satama",ESP: "Espoo",       LEN: "Lentoasema",
+  HPL: "Helsinki-Vantaan lentoasema", HVL: "Lentoasema",
 };
 
 interface FintrafficTimeTableRow {
@@ -42,8 +47,31 @@ interface FintrafficTrain {
   trainNumber: number;
   trainType: string;
   trainCategory: string;
+  commuterLineID?: string;
   cancelled: boolean;
   timeTableRows: FintrafficTimeTableRow[];
+}
+
+/**
+ * Tarkistaa onko nyt ruuhka-aika, jolloin lentokenttäjunat (I/P) ovat
+ * relevantteja taksikuljettajille:
+ *  - iltapäivä klo 16:00 - 17:30 (työmatkalaiset menevät kentälle)
+ *  - ilta klo 23:00 - 00:30 (myöhäiset saapumiset, vähän bussiyhteyksiä)
+ * Aikavyöhyke: Europe/Helsinki.
+ */
+function isCommuterRushHour(): boolean {
+  const now = new Date();
+  // Käytetään Helsingin aikaa
+  const hkiTime = new Date(now.toLocaleString("en-US", { timeZone: "Europe/Helsinki" }));
+  const h = hkiTime.getHours();
+  const m = hkiTime.getMinutes();
+  const totalMin = h * 60 + m;
+  // 16:00 - 17:30
+  if (totalMin >= 16 * 60 && totalMin <= 17 * 60 + 30) return true;
+  // 23:00 - 00:30 (käsittele yli puolenyön)
+  if (totalMin >= 23 * 60) return true;
+  if (totalMin <= 30) return true;
+  return false;
 }
 
 /**
@@ -57,7 +85,11 @@ function getOriginStation(rows: FintrafficTimeTableRow[]): string {
   );
   const first = sorted.find((r) => r.type === "DEPARTURE");
   if (!first) return "Tuntematon";
-  return STATION_NAMES[first.stationShortCode] ?? first.stationShortCode;
+  const code = first.stationShortCode;
+  // Älä koskaan palauta pelkkää lyhennettä — jos mappausta ei löydy,
+  // näytä lyhenne sulkeissa ja "Asema" -etuliite, jotta käyttäjä tietää
+  // että kyseessä on tunnistamaton asemakoodi.
+  return STATION_NAMES[code] ?? `Asema ${code}`;
 }
 
 /**
@@ -92,10 +124,18 @@ export async function fetchLiveTrains(station: TrainStation = "HKI"): Promise<Tr
   const results: TrainDelay[] = [];
 
   for (const train of trains) {
-    // Suodata: vain kaukojunat, ei peruutettuja
-    if (train.trainCategory !== "Long-distance" || train.cancelled) {
+    if (train.cancelled) continue;
+
+    // Lentokenttäjunat (commuter I/P) ovat relevantteja vain ruuhka-aikoina
+    const isAirport =
+      train.trainCategory === "Commuter" &&
+      (train.commuterLineID === "I" || train.commuterLineID === "P");
+
+    // Hyväksy kaukojunat aina, lentokenttäjunat vain ruuhka-aikoina
+    if (train.trainCategory !== "Long-distance" && !(isAirport && isCommuterRushHour())) {
       continue;
     }
+
     // HKI-asemalla naytetaan vain Helsinkiin saapuvat (paateaseman saapumiset).
     // PSL/TKL ovat valiasemia: kaikki kaukojunien pysahdykset ovat relevantteja
     // taksikuljettajalle (sek. Helsinkiin saapuvat etta Helsingista lahtevat).
@@ -108,6 +148,13 @@ export async function fetchLiveTrains(station: TrainStation = "HKI"): Promise<Tr
       (r) => r.stationShortCode === station && r.type === "ARRIVAL"
     );
     if (!arrival) continue;
+
+    // VAIN saapuvat: jos saapumisaika on jo mennyt (yli 2 min sitten), ohita.
+    // Tämä estää Helsingistä juuri lähteneiden junien näyttämisen.
+    const arrivalEpoch = new Date(
+      arrival.liveEstimateTime ?? arrival.actualTime ?? arrival.scheduledTime
+    ).getTime();
+    if (arrivalEpoch < Date.now() - 2 * 60 * 1000) continue;
 
     // Laske viive: kayta liveEstimate > actualTime > scheduled
     const scheduled = new Date(arrival.scheduledTime);
@@ -129,10 +176,15 @@ export async function fetchLiveTrains(station: TrainStation = "HKI"): Promise<Tr
       ":" +
       estimate.getMinutes().toString().padStart(2, "0");
 
+    // Lentokenttäjunille korvaa origin-teksti selkeämmäksi
+    const origin = isAirport
+      ? "Lentoasema"
+      : getOriginStation(train.timeTableRows);
+
     results.push({
       id: `fin-${train.trainNumber}`,
       line: `${train.trainType} ${train.trainNumber}`,
-      origin: getOriginStation(train.timeTableRows),
+      origin,
       delayMinutes,
       arrivalTime,
     } satisfies TrainDelay);

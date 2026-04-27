@@ -234,7 +234,7 @@ const DispatchScanner = ({ open, onOpenChange, onSaved }: Props) => {
         t_now: numField(res.result.t_now),
         k_30: numField(res.result.k_30),
         t_30: numField(res.result.t_30),
-        notes: `Lahde: ${file.name}`,
+        notes: `Lähde: ${file.name}`,
       });
       setStage("review");
     } catch (e) {

@@ -26,22 +26,24 @@ const SHIP_TERMINAL_MAP: Record<string, string> = {
   'grace': 'Katajanokka',
   'cinderella': 'Katajanokka',
   'isabella': 'Katajanokka',
+  'xprs': 'Katajanokka',
+  'viking xprs': 'Katajanokka',
   'viking grace': 'Katajanokka',
   'viking cinderella': 'Katajanokka',
   'viking isabella': 'Katajanokka',
   // Tallink -> P3 Lansiterminaali
-  'megastar': 'Lansiterminaali',
-  'star': 'Lansiterminaali',
-  'romantika': 'Lansiterminaali',
-  'tallink megastar': 'Lansiterminaali',
-  'tallink star': 'Lansiterminaali',
+  'megastar': 'Länsiterminaali',
+  'star': 'Länsiterminaali',
+  'romantika': 'Länsiterminaali',
+  'tallink megastar': 'Länsiterminaali',
+  'tallink star': 'Länsiterminaali',
 };
 
 // Maksimimatkustajat terminaaleittain
 const TERMINAL_MAX_PAX: Record<string, number> = {
   'Olympiaterminaali': 2852,  // Silja Serenade kapasiteetti
   'Katajanokka': 2800,        // Viking Grace kapasiteetti
-  'Lansiterminaali': 2800,    // Tallink Megastar kapasiteetti
+  'Länsiterminaali': 2800,    // Tallink Megastar kapasiteetti
 };
 
 function parseAverioHtml(html: string): AverioShip[] {
@@ -87,8 +89,8 @@ function resolveTerminal(ship: string, averioHarbor: string): string {
   const h = averioHarbor.toLowerCase();
   if (h.includes('olympia'))                              return 'Olympiaterminaali';
   if (h.includes('katajanokka'))                          return 'Katajanokka';
-  if (h.includes('lansi') || h.includes('lansisatama'))   return 'Lansiterminaali';
-  if (h.includes('etela') || h.includes('eteläsatama'))   return 'Olympiaterminaali'; // Eteläsatama = Olympia-alue
+  if (h.includes('länsi') || h.includes('lansi'))         return 'Länsiterminaali';
+  if (h.includes('etelä') || h.includes('etela'))         return 'Olympiaterminaali'; // Eteläsatama = Olympia-alue
 
   // Taso 3: tuntematon -> palautetaan sellaisenaan
   return averioHarbor;
