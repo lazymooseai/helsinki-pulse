@@ -157,22 +157,37 @@ Deno.serve(async (req) => {
   }
 
   try {
-    const response = await fetch('https://averio.fi/laivat', {
+    // 1) Averio (sisaltaa pax-arviot)
+    const averioRes = await fetch('https://averio.fi/laivat', {
       headers: { 'User-Agent': 'HelsinkiTaxiPulse/2.0' },
     });
-
-    if (!response.ok) {
-      throw new Error(`Averio fetch failed: ${response.status}`);
-    }
-
-    const html = await response.text();
+    if (!averioRes.ok) throw new Error(`Averio fetch failed: ${averioRes.status}`);
+    const html = await averioRes.text();
     const rawShips = parseAverioHtml(html);
+
+    // 2) Port of Helsinki (virallinen aikataulu, ei pax-tietoja)
+    let pohArrivals: Array<{ ship: string; terminal: string; arrivalTime: string }> = [];
+    try {
+      const pohRes = await fetch(
+        'https://www.portofhelsinki.fi/en/passengers/information-for-passengers/arrivals-and-departures/',
+        { headers: { 'User-Agent': 'HelsinkiTaxiPulse/2.0' } },
+      );
+      if (pohRes.ok) {
+        const pohHtml = await pohRes.text();
+        pohArrivals = parsePortOfHelsinkiArrivals(pohHtml);
+      }
+    } catch (e) {
+      console.warn('Port of Helsinki fetch epaonnistui:', (e as Error).message);
+    }
 
     const terminalEstimates: Record<string, { estimate: number; maxCapacity: number; factor: number }> = {};
     const shipList: Array<{ ship: string; harbor: string; pax: number; arrivalTime: string }> = [];
+    const seen = new Set<string>(); // dedupe-key: ship|arrivalTime
 
     for (const s of rawShips) {
       const terminal = resolveTerminal(s.ship, s.harbor);
+      const key = `${s.ship.toLowerCase()}|${s.arrivalTime}`;
+      seen.add(key);
 
       shipList.push({
         ship: s.ship,
@@ -186,6 +201,38 @@ Deno.serve(async (req) => {
         terminalEstimates[terminal] = { estimate: 0, maxCapacity: maxCap, factor: 0 };
       }
       terminalEstimates[terminal].estimate += s.pax;
+    }
+
+    // 3) Lisaa PoH:n saapuvat laivat, joita Averiossa ei ollut (esim. yo-vuorot).
+    //    Pax = 0 (ei tiedossa). Skipataan rahtilaivat ja Vuosaari/Muuga.
+    const now = Date.now();
+    const horizonMs = 6 * 60 * 60 * 1000; // 6h ikkuna
+    const cargoBlacklist = /finbo cargo|finnmaid|finnstar|finnlady|finntrader|finnsea|finnpulp|finnsky/i;
+    for (const a of pohArrivals) {
+      if (cargoBlacklist.test(a.ship)) continue;
+      const terminal = mapPohTerminal(a.terminal);
+      if (terminal === 'Vuosaari') continue; // ei taksitoiminnan kannalta relevantti
+      const key = `${a.ship.toLowerCase()}|${a.arrivalTime}`;
+      if (seen.has(key)) continue;
+      const dt = parseShipDate(a.arrivalTime);
+      if (!dt) continue;
+      const diff = dt.getTime() - now;
+      // Vain tulevat (max 6h) — varmistaa ettei lisata vanhentuneita rivejä
+      if (diff < -10 * 60 * 1000 || diff > horizonMs) continue;
+      seen.add(key);
+
+      shipList.push({
+        ship: a.ship,
+        harbor: terminal,
+        pax: 0,
+        arrivalTime: a.arrivalTime,
+      });
+
+      if (!terminalEstimates[terminal]) {
+        const maxCap = TERMINAL_MAX_PAX[terminal] ?? 2800;
+        terminalEstimates[terminal] = { estimate: 0, maxCapacity: maxCap, factor: 0 };
+      }
+      // pax = 0 -> ei kasvateta estimaattia
     }
 
     // Laske tayttoprosentti
