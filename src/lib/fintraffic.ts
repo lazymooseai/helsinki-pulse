@@ -8,11 +8,13 @@ export const TRAIN_STATIONS: { code: TrainStation; name: string }[] = [
   { code: "TKL", name: "Tikkurila" },
 ];
 
-// Nayta max 30 saapuvaa junaa - Long-distance suodatus karsii loput
+// Nayta jopa 100 saapuvaa junaa - tarvitaan korkea raja erityisesti Pasilalle,
+// jossa lahijunat tayttavat kiintion ennen kaukojunia. Long-distance + 60min
+// ikkuna karsii listan myohemmin pieneksi.
 function getFintrafficUrl(station: TrainStation): string {
   return (
     `https://rata.digitraffic.fi/api/v1/live-trains/station/${station}` +
-    `?arrived_trains=3&arriving_trains=30&departing_trains=0&include_nonstopping=false`
+    `?arrived_trains=3&arriving_trains=100&departing_trains=0&include_nonstopping=false`
   );
 }
 
