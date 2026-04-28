@@ -124,20 +124,10 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
   });
 
   // Crowd overrides — sessiomuisti (tyhjenee kun selain suljetaan)
-  const [crowdOverrides, setCrowdOverrides] = useState<Record<string, CrowdOverride>>(() => {
-    try {
-      const saved = sessionStorage.getItem("crowdOverrides");
-      return saved ? JSON.parse(saved) : {};
-    } catch { return {}; }
-  });
+  const [crowdOverrides, setCrowdOverrides] = useState<Record<string, CrowdOverride>>({});
 
   // Dispatch edits — pysyva muisti (sailyy selainistuntojen valilla)
-  const [dispatchEdits, setDispatchEdits] = useState<Record<string, DispatchEdit>>(() => {
-    try {
-      const saved = localStorage.getItem("dispatchEdits");
-      return saved ? JSON.parse(saved) : {};
-    } catch { return {}; }
-  });
+  const [dispatchEdits, setDispatchEdits] = useState<Record<string, DispatchEdit>>({});
 
   // Asemavalinta — sessiomuisti
   const [trainStation, setTrainStationState] = useState<TrainStation>(() => {
@@ -274,8 +264,7 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
     setIsLoading(true);
 
     try {
-      const [trains, weather, harborPax, eventsBundle] = await Promise.all([
-        fetchLiveTrains(trainStation),
+      const [weather, harborPax, eventsBundle] = await Promise.all([
         fetchLiveWeather(),
         fetchHarborPaxEstimates().catch((e) => {
           console.warn("Harbor pax fetch epaonnistui:", e);
@@ -297,7 +286,6 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
 
       setState((prev) => ({
         ...prev,
-        trainDelays: trains,
         weather,
         shipArrivals: ships,
         events,
@@ -305,14 +293,13 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
       setLastFetch(fetchedAt);
       setSourceTimestamps((prev) => ({
         ...prev,
-        trains: fetchedAt,
         ships: fetchedAt,
         weather: fetchedAt,
         events: fetchedAt,
       }));
 
       // Toast-notifikaatiot — prioriteettijärjestyksessä
-      const delayed = trains.filter((t) => t.delayMinutes > 30);
+      const delayed = state.trainDelays.filter((t) => t.delayMinutes > 30);
       const isSlippery = (weather.slipperyIndex ?? 0) >= 0.6;
 
       if (isSlippery) {
@@ -329,7 +316,7 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
         });
       } else {
         toast.success(
-          `${trains.length} junaa | ${ships.length} laivaa | ${events.length} tapahtumaa | ${weather.temp}C`,
+          `${state.trainDelays.length} junaa | ${ships.length} laivaa | ${events.length} tapahtumaa | ${weather.temp}C`,
           { description: "Ei merkittavia myohastymisia tai saavaroltuksia." }
         );
       }
@@ -355,7 +342,17 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
     const weatherInterval = setInterval(refreshWeather, WEATHER_REFRESH_MS);
     const sportsInterval = setInterval(refreshSports, SPORTS_REFRESH_MS);
 
-    // Realtime: kun events-taulu paivittyy (skrapaus tai manuaalinen lisays), refetch
+    return () => {
+      clearInterval(allInterval);
+      clearInterval(trainInterval);
+      clearInterval(flightInterval);
+      clearInterval(weatherInterval);
+      clearInterval(sportsInterval);
+    };
+  }, [refreshAll, refreshTrains, refreshFlights, refreshWeather, refreshSports]);
+
+  // Realtime: kun events-taulu paivittyy (skrapaus tai manuaalinen lisays), refetch
+  useEffect(() => {
     const eventsChannel = supabase
       .channel("events-changes")
       .on("postgres_changes", { event: "*", schema: "public", table: "events" }, () => {
@@ -365,16 +362,8 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
         }).catch(() => {});
       })
       .subscribe();
-
-    return () => {
-      clearInterval(allInterval);
-      clearInterval(trainInterval);
-      clearInterval(flightInterval);
-      clearInterval(weatherInterval);
-      clearInterval(sportsInterval);
-      supabase.removeChannel(eventsChannel);
-    };
-  }, [refreshAll, refreshTrains, refreshFlights, refreshWeather, refreshSports]);
+    return () => { supabase.removeChannel(eventsChannel); };
+  }, []);
 
   // ---------------------------------------------------------------------------
   // DevTools-apufunktiot
@@ -461,7 +450,7 @@ export function useDashboard() {
         hasJackpot: false,
         isLoading: false,
         lastFetch: null,
-        sourceTimestamps: { trains: null, ships: null, weather: null, events: null, flights: null, sports: null },
+        sourceTimestamps: { trains: null, ships: null, weather: null, events: null, flights: null, sportsEvents: null },
         upcomingEvents: [],
         refreshAll: async () => {},
         refreshTrains: async () => {},
