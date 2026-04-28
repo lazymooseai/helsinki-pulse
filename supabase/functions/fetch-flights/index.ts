@@ -18,7 +18,7 @@ const corsHeaders = {
 };
 
 const SOURCE_BASE = "https://www.finavia.fi/fi/lentoasemat/helsinki-vantaa/lennot";
-const WINDOW_MS = 2 * 60 * 60 * 1000;
+const WINDOW_MS = 3 * 60 * 60 * 1000;
 const HELSINKI_TIMEZONE = "Europe/Helsinki";
 const CACHE_TTL_MS = 60 * 1000;
 
@@ -310,15 +310,17 @@ Deno.serve(async (req) => {
     const now = new Date();
     const cutoff = now.getTime() + WINDOW_MS;
     const flights: FlightOut[] = [];
+    let droppedPast = 0, droppedFuture = 0, droppedStatus = 0, droppedParse = 0;
 
     for (const f of raw) {
       const schedDate = parseHelsinkiTime(f.scheduled, now);
       const estDate = f.estimated ? parseHelsinkiTime(f.estimated, now) : schedDate;
-      if (!schedDate || !estDate) continue;
+      if (!schedDate || !estDate) { droppedParse++; continue; }
 
       const arrivalMs = estDate.getTime();
-      if (arrivalMs < now.getTime() - 15 * 60 * 1000 || arrivalMs > cutoff) continue;
-      if (f.status === "Laskeutunut" || f.status === "Peruttu") continue;
+      if (arrivalMs < now.getTime() - 15 * 60 * 1000) { droppedPast++; continue; }
+      if (arrivalMs > cutoff) { droppedFuture++; continue; }
+      if (f.status === "Laskeutunut" || f.status === "Peruttu") { droppedStatus++; continue; }
 
       const delay = Math.round((estDate.getTime() - schedDate.getTime()) / 60000);
       const hour = getHelsinkiHour(estDate);
@@ -341,6 +343,14 @@ Deno.serve(async (req) => {
         demandTag: tag,
         demandLevel: level,
       });
+    }
+
+    console.log(`Suodatus: ${flights.length} pidetty, dropped past=${droppedPast} future=${droppedFuture} status=${droppedStatus} parse=${droppedParse}`);
+    if (raw.length > 0 && flights.length === 0) {
+      console.log("Sample raw:", JSON.stringify(raw.slice(0, 3)));
+      console.log("now=", now.toISOString(), "cutoff=", new Date(cutoff).toISOString());
+      const sample = parseHelsinkiTime(raw[0].scheduled, now);
+      console.log("Esim parsed scheduled:", raw[0].scheduled, "->", sample?.toISOString());
     }
 
     flights.sort((a, b) => {
