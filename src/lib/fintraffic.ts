@@ -260,14 +260,21 @@ export async function fetchLiveTrains(station: TrainStation = "HKI"): Promise<Tr
   }
 
   // Jarjesta saapumisajan mukaan (aikaisin ensin)
-  results.sort((a, b) => {
+  const byTime = (a: TrainDelay, b: TrainDelay) => {
     const [ah, am] = a.arrivalTime.split(":").map(Number);
     const [bh, bm] = b.arrivalTime.split(":").map(Number);
     return ah * 60 + am - (bh * 60 + bm);
-  });
+  };
+  results.sort(byTime);
 
-  // Nayta vain 5 seuraavaa junaa
-  const topTrains = results.slice(0, 5);
+  // Priorisoi kaukojunat: lentoasemajunat (HL/origin "Lentoasema") tayttavat
+  // ruuhka-aikana koko listan. Otetaan ensin enintaan 4 kaukojunaa,
+  // sitten taytetaan max 1 lentoasemajunalla -> yhteensa max 5.
+  const longDistance = results.filter((t) => t.origin !== "Lentoasema");
+  const airport = results.filter((t) => t.origin === "Lentoasema");
+  const topTrains = [...longDistance.slice(0, 4), ...airport.slice(0, 1)]
+    .sort(byTime)
+    .slice(0, 5);
 
   // Hae compositions top-3 lähimmälle junalle
   const top3 = topTrains.slice(0, 3);

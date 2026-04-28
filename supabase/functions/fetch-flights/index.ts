@@ -6,7 +6,7 @@
  *
  * Ei vaadi Finavia API -avainta — käyttää FIRECRAWL_API_KEY (managed connection).
  *
- * Suodattaa: vain seuraavat 2 tuntia.
+ * Suodattaa: vain seuraavat 3 tuntia.
  * Cache: 60s muistissa (scrape-kustannus + nopeus).
  */
 
