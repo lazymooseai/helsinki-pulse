@@ -47,7 +47,7 @@ export interface WeatherData {
   snowfall: number;       // Lumisade mm/h
   windSpeed: number;      // Tuulennopeus m/s
   rainModeActive: boolean; // true kun sade+lumi > 1.0 mm/h
-  slipperyIndex?: number;  // 0.0-1.0: liukkausindeksi (>= 0.6 = sairaala-signaali)
+  slipperyIndex: number;  // 0.0-1.0: liukkausindeksi (>= 0.6 = sairaala-signaali)
 }
 
 export type AlertLevel = "none" | "high" | "jackpot";

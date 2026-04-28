@@ -34,7 +34,7 @@ function minutesUntil(eta: string): number {
 
 function isLongDistance(line: string): boolean {
   // IC = InterCity, P = Pendolino, S = S-juna (pikajuna)
-  return /^(IC|P|S)\s?\d*/i.test(line);
+  return /^(IC|P|S)\d+/i.test(line);
 }
 
 function isLateNight(): boolean {
