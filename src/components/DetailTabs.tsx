@@ -203,7 +203,7 @@ const DetailTabs = () => {
           />
           {state.flights.length === 0 ? (
             <p className="text-sm text-muted-foreground text-center py-6">
-              Ei saapuvia lentoja seuraavan 2h aikana
+              Ei saapuvia lentoja seuraavan 3h aikana
             </p>
           ) : (
             state.flights.map((f) => (
