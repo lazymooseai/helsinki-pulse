@@ -89,6 +89,18 @@ function fmtTime(date: Date): string {
   return `${h}:${m}`;
 }
 
+/** Helsingin offset (millisekunteina) annettuna UTC-hetkenä. */
+function helsinkiOffsetMs(d: Date): number {
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone: HELSINKI_TIMEZONE,
+    year: "numeric", month: "2-digit", day: "2-digit",
+    hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false,
+  }).formatToParts(d);
+  const get = (t: string) => Number(parts.find((p) => p.type === t)?.value ?? "0");
+  const asUtc = Date.UTC(get("year"), get("month") - 1, get("day"), get("hour"), get("minute"), get("second"));
+  return asUtc - d.getTime();
+}
+
 /** Yhdistä HH:MM tämän päivän Helsinki-päivämäärään. Käsittelee yön ylityksen. */
 function parseHelsinkiTime(hhmm: string, now: Date): Date | null {
   const m = hhmm.match(/^(\d{1,2})[:.](\d{2})$/);
@@ -102,23 +114,17 @@ function parseHelsinkiTime(hhmm: string, now: Date): Date | null {
     timeZone: HELSINKI_TIMEZONE, year: "numeric", month: "2-digit", day: "2-digit",
   });
   const today = fmt.format(now); // YYYY-MM-DD
+  const y = Number(today.slice(0, 4));
+  const mo = Number(today.slice(5, 7));
+  const d = Number(today.slice(8, 10));
 
-  const utcMs = Date.UTC(
-    Number(today.slice(0, 4)), Number(today.slice(5, 7)) - 1, Number(today.slice(8, 10)),
-    hour, minute, 0,
-  );
-  // Helsingin offset (kesä +3, talvi +2)
-  const probe = new Date(utcMs);
-  const offsetParts = new Intl.DateTimeFormat("en-US", {
-    timeZone: HELSINKI_TIMEZONE, timeZoneName: "shortOffset",
-  }).formatToParts(probe);
-  const tzName = offsetParts.find((p) => p.type === "timeZoneName")?.value ?? "GMT+2";
-  const offsetMatch = tzName.match(/GMT([+-])(\d+)/);
-  const offsetHours = offsetMatch ? (offsetMatch[1] === "+" ? 1 : -1) * Number(offsetMatch[2]) : 2;
-  let result = new Date(utcMs - offsetHours * 60 * 60 * 1000);
+  // Tulkitse hh:mm Helsinki-paikallisaikana → UTC
+  const naiveUtc = Date.UTC(y, mo - 1, d, hour, minute, 0);
+  const offset = helsinkiOffsetMs(new Date(naiveUtc));
+  let result = new Date(naiveUtc - offset);
 
-  // Jos aika on yli 6h menneisyydessä, oletetaan että se on huomenna
-  if (result.getTime() < now.getTime() - 6 * 60 * 60 * 1000) {
+  // Yön yli: jos aika on yli 12h menneisyydessä, oletetaan huomiseksi
+  if (result.getTime() < now.getTime() - 12 * 60 * 60 * 1000) {
     result = new Date(result.getTime() + 24 * 60 * 60 * 1000);
   }
   return result;
