@@ -329,7 +329,7 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
     } finally {
       if (!controller.signal.aborted) setIsLoading(false);
     }
-  }, [trainStation, state.trainDelays]);
+  }, [trainStation]);
 
   // Alkuhaku + viisi erillista paivityssykl: junat/lennot/sää 2 min, muut 5 min, urheilu 15 min
   useEffect(() => {
