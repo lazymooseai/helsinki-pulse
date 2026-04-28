@@ -2,6 +2,45 @@ import { TrainDelay } from "./types";
 
 export type TrainStation = "HKI" | "PSL" | "TKL";
 
+// Junatyypin oletuskapasiteetti kun /compositions ei vastaa
+// Laskettu VR:n julkisista kalustotiedoista (istumapaikat)
+const TRAIN_TYPE_CAPACITY: Record<string, number> = {
+  S:   297,   // Pendolino Sm6
+  IC:  480,   // InterCity 2 (keskiarvo)
+  P:   360,   // Pikajuna
+  AE:  352,   // Allegro (historiallinen)
+  DEFAULT: 350,
+};
+
+function getTypeCapacity(line: string): number {
+  const type = line.replace(/\d+/g, "").trim().toUpperCase();
+  return TRAIN_TYPE_CAPACITY[type] ?? TRAIN_TYPE_CAPACITY.DEFAULT;
+}
+
+async function fetchTrainSeats(
+  trainNumber: number,
+  departureDate: string
+): Promise<number | null> {
+  try {
+    const url = `https://rata.digitraffic.fi/api/v1/compositions/${departureDate}/${trainNumber}`;
+    const resp = await fetch(url, {
+      headers: { "Digitraffic-User": "HelsinkiTaxiPulse/1.0" },
+      signal: AbortSignal.timeout(5000),
+    });
+    if (!resp.ok) return null;
+    const data = await resp.json();
+    let total = 0;
+    for (const section of data?.journeySections ?? []) {
+      for (const wagon of section?.wagons ?? []) {
+        total += (wagon.seating ?? 0) + (wagon.seatingDisabled ?? 0);
+      }
+    }
+    return total > 0 ? total : null;
+  } catch {
+    return null;
+  }
+}
+
 export const TRAIN_STATIONS: { code: TrainStation; name: string }[] = [
   { code: "HKI", name: "Helsinki" },
   { code: "PSL", name: "Pasila" },

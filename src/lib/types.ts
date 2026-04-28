@@ -11,6 +11,8 @@ export interface TrainDelay {
   origin: string;
   delayMinutes: number;
   arrivalTime: string;
+  capacity?: number;        // Istumapaikkamäärä: oikea (compositions) tai arvio (tyyppi)
+  capacitySource?: "real" | "estimate";  // "real" = Digitraffic, "estimate" = tyyppiarvio
 }
 
 export interface ShipArrival {
