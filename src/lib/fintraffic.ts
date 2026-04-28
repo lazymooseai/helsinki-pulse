@@ -267,5 +267,31 @@ export async function fetchLiveTrains(station: TrainStation = "HKI"): Promise<Tr
   });
 
   // Nayta vain 5 seuraavaa junaa
-  return results.slice(0, 5);
+  const trains = results.slice(0, 5);
+
+  // Hae compositions top-3 lähimmälle junalle
+  const top3 = trains.slice(0, 3);
+  const today = new Date().toISOString().split("T")[0];
+  const seatResults = await Promise.allSettled(
+    top3.map((t) =>
+      fetchTrainSeats(Number(t.id.replace(/^fin-/, "")), today)
+    )
+  );
+  seatResults.forEach((result, i) => {
+    if (result.status === "fulfilled" && result.value !== null) {
+      top3[i].capacity = result.value;
+      top3[i].capacitySource = "real";
+    } else {
+      top3[i].capacity = getTypeCapacity(top3[i].line);
+      top3[i].capacitySource = "estimate";
+    }
+  });
+
+  // Muille junille tyyppiarvio
+  trains.slice(3).forEach((t) => {
+    t.capacity = getTypeCapacity(t.line);
+    t.capacitySource = "estimate";
+  });
+
+  return trains;
 }
