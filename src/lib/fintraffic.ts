@@ -267,10 +267,10 @@ export async function fetchLiveTrains(station: TrainStation = "HKI"): Promise<Tr
   });
 
   // Nayta vain 5 seuraavaa junaa
-  const trains = results.slice(0, 5);
+  const topTrains = results.slice(0, 5);
 
   // Hae compositions top-3 lähimmälle junalle
-  const top3 = trains.slice(0, 3);
+  const top3 = topTrains.slice(0, 3);
   const today = new Date().toISOString().split("T")[0];
   const seatResults = await Promise.allSettled(
     top3.map((t) =>
@@ -288,10 +288,10 @@ export async function fetchLiveTrains(station: TrainStation = "HKI"): Promise<Tr
   });
 
   // Muille junille tyyppiarvio
-  trains.slice(3).forEach((t) => {
+  topTrains.slice(3).forEach((t) => {
     t.capacity = getTypeCapacity(t.line);
     t.capacitySource = "estimate";
   });
 
-  return trains;
+  return topTrains;
 }
