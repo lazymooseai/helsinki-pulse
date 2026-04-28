@@ -194,6 +194,11 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
     }
   }, [trainStation]);
 
+  useEffect(() => {
+    setState((prev) => ({ ...prev, trainDelays: [] }));
+    refreshTrains();
+  }, [trainStation]);
+
   // Lentojen haku (2 min sykli — Finavia API edge functionin kautta)
   const flightAbortRef = useRef<AbortController | null>(null);
   const refreshFlights = useCallback(async () => {
